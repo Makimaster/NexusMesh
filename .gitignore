@@ -1,0 +1,65 @@
+# ─── Python ──────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+.env
+*.env.local
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ─── Node / Frontend ─────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+.pnpm-debug.log
+*.tsbuildinfo
+
+# ─── Docker ──────────────────────────────────────
+docker/postgres/data/
+docker/redis/data/
+
+# ─── IDE ─────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ─── Secrets ─────────────────────────────────────
+.env
+*.pem
+*.key
+*.cert
+secrets/
+
+# ─── Logs ────────────────────────────────────────
+*.log
+logs/
+
+# ─── Alembic ─────────────────────────────────────
+# 保留 versions/ 下迁移文件，忽略本地缓存
+backend/migrations/__pycache__/
+
+# ─── Superpowers（本地头脑风暴产物）─────────────────
+# docs/superpowers/ 可选择提交或忽略
+# 若不提交设计文档，取消下行注释：
+# docs/superpowers/
+
+# ─── Local AI Workspace ─────────────────────────
+.claude/
