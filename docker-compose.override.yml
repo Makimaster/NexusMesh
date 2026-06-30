@@ -5,7 +5,8 @@ services:
   backend:
     volumes:
       - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - backend_venv:/app/.venv
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       APP_DEBUG: "true"
       LOG_LEVEL: "DEBUG"
@@ -17,3 +18,6 @@ services:
   redis:
     ports:
       - "6379:6379"
+
+volumes:
+  backend_venv:

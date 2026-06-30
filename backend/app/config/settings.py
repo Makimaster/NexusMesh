@@ -1,7 +1,7 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, computed_field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class AppSettings(BaseSettings):
@@ -61,7 +61,10 @@ class AppSettings(BaseSettings):
     MINIO_BUCKET: str = "nexusmesh"
 
     # ─── CORS ────────────────────────────────────────
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:4173"]
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = [
+        "http://localhost:5173",
+        "http://localhost:4173",
+    ]
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

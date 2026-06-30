@@ -2,11 +2,6 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# 安装系统依赖（asyncpg 需要 libpq）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev gcc \
-    && rm -rf /var/lib/apt/lists/*
-
 # 安装 uv
 RUN pip install --no-cache-dir uv
 

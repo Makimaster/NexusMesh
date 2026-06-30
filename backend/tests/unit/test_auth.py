@@ -1,4 +1,4 @@
-from app.config.settings import settings
+from app.config.settings import AppSettings, settings
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -34,3 +34,14 @@ def test_access_and_refresh_token_roundtrip() -> None:
 def test_settings_load_required_secrets() -> None:
     assert len(settings.SECRET_KEY) >= 32
     assert len(settings.JWT_SECRET_KEY) >= 32
+
+
+def test_settings_parse_comma_separated_cors_origins() -> None:
+    parsed_settings = AppSettings(
+        CORS_ORIGINS="http://localhost:5173,http://localhost:4173",
+    )
+
+    assert parsed_settings.CORS_ORIGINS == [
+        "http://localhost:5173",
+        "http://localhost:4173",
+    ]
