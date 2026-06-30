@@ -1,6 +1,5 @@
 import os
 
-
 os.environ.setdefault("APP_ENV", "testing")
 os.environ.setdefault("APP_DEBUG", "false")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-at-least-32-characters")

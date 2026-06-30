@@ -1,0 +1,77 @@
+:root {
+  color: #163042;
+  background: radial-gradient(
+      circle at top,
+      rgba(39, 122, 191, 0.18),
+      transparent 42%
+    ), linear-gradient(180deg, #eef4f8 0%, #dce8f0 100%);
+  font-family: "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+}
+
+.screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.panel {
+  width: min(520px, 100%);
+  padding: 36px;
+  border: 1px solid rgba(22, 48, 66, 0.08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 24px 80px rgba(22, 48, 66, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #1a6ea4;
+}
+
+.panel h1 {
+  margin: 0 0 12px;
+  font-size: clamp(32px, 5vw, 44px);
+  line-height: 1.05;
+}
+
+.muted {
+  margin: 0 0 24px;
+  line-height: 1.6;
+  color: #506271;
+}
+
+.primaryButton {
+  border: 0;
+  border-radius: 999px;
+  padding: 14px 22px;
+  background: linear-gradient(135deg, #0f8bd7, #1161d6);
+  color: #fff;
+  cursor: pointer;
+}
+
+.tokenPreview {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #0f1e28;
+  color: #d9efff;
+  overflow: auto;
+}

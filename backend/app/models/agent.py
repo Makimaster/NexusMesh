@@ -1,7 +1,9 @@
 import uuid
-from sqlalchemy import Boolean, String, Text, UUID, ForeignKey
+
+from sqlalchemy import UUID, Boolean, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.models.base import Base, TimestampMixin
 
 

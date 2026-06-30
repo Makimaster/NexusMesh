@@ -7,7 +7,7 @@ from app.config.settings import settings
 _redis: aioredis.Redis | None = None
 
 
-async def get_redis() -> AsyncGenerator[aioredis.Redis, None]:
+async def get_redis() -> AsyncGenerator[aioredis.Redis]:
     """FastAPI dependency: yields the shared Redis client."""
     global _redis
     if _redis is None:

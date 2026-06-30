@@ -1,4 +1,4 @@
-from typing import List, Literal
+from typing import Literal
 
 from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -61,11 +61,11 @@ class AppSettings(BaseSettings):
     MINIO_BUCKET: str = "nexusmesh"
 
     # ─── CORS ────────────────────────────────────────
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:4173"]
+    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:4173"]
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
-    def parse_cors_origins(cls, v: str | List[str]) -> List[str]:
+    def parse_cors_origins(cls, v: str | list[str]) -> list[str]:
         if isinstance(v, str) and not v.startswith("["):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v  # type: ignore[return-value]

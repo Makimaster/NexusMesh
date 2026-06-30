@@ -1,6 +1,8 @@
 import uuid
-from sqlalchemy import String, Boolean, UUID
+
+from sqlalchemy import UUID, Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.models.base import Base, TimestampMixin
 
 
