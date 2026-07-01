@@ -42,4 +42,4 @@ pnpm -C frontend check
 
 - 一个 PR 聚焦一件事，描述中说明变更内容、测试方式与影响范围。
 - 涉及接口变更时，同步更新 `docs/` 下相关文档。
-- 确保 CI（`.gitee/workflows/ci.yml`）全部通过后再请求合并。
+- 确保本地检查全部通过后再请求合并：后端 `ruff check app tests migrations` + `uv run pytest tests`，前端 `pnpm -C frontend check`。

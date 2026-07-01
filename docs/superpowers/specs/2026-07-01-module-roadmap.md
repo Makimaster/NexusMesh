@@ -222,7 +222,7 @@ orchestrator/ → protocol/       → common/
 - **落地**：`backend/tests/integration/`、前端 e2e（Playwright 或等价）。
 - **输入 / 输出 / 依赖**：依赖 M8、M10–M13。
 - **要点**：覆盖率对齐设计文档 §11 目标（35–50%）。
-- **DoD**：至少一条完整业务链路的 E2E 用例在本地/CI 通过。
+- **DoD**：至少一条完整业务链路的 E2E 用例在本地通过。
 - **前置**：M8、M10–M13。
 
 #### M15 可观测性
@@ -254,7 +254,7 @@ orchestrator/ → protocol/       → common/
 - **目标驱动 + 测试闭环**（CLAUDE.md §4）：DoD 中的测试项即成功标准，编码循环至测试通过。
 - **单向依赖**（设计文档 §5.2）：严禁反向依赖，模块只依赖其声明的前置。
 - **即时中文提交**（MEMORY.md）：每个模块完成并验证后立即提交，描述追溯改动目的。
-- **代码规范**：后端 `ruff check app tests migrations` + `pytest` 全绿；前端 `biome check` 全绿；CI 必须通过。
+- **代码规范**：后端 `ruff check app tests migrations` + `pytest` 全绿；前端 `biome check` 全绿（本地验证；暂未接入自动 CI）。
 
 ---
 
