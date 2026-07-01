@@ -61,3 +61,22 @@ def test_workflow_execution_table_shape() -> None:
         "created_at",
         "updated_at",
     } <= set(cols.keys())
+
+
+def test_execution_event_is_append_only() -> None:
+    from app.models.event import ExecutionEvent
+
+    cols = ExecutionEvent.__table__.columns
+    assert cols["execution_id"].foreign_keys
+    assert ("execution_id",) in _indexed_columns(ExecutionEvent)
+    assert "created_at" in cols
+    assert "updated_at" not in cols
+    assert cols["protocol_stage"].nullable is False
+    assert {
+        "id",
+        "execution_id",
+        "protocol_stage",
+        "event_type",
+        "payload",
+        "created_at",
+    } == set(cols.keys())
