@@ -16,6 +16,18 @@ def test_agent_fk_columns_indexed() -> None:
     assert ("created_by",) in indexed
 
 
+def test_all_tables_registered_on_metadata() -> None:
+    from app.models import Base
+
+    assert {
+        "users",
+        "agents",
+        "workflows",
+        "workflow_executions",
+        "execution_events",
+    } <= set(Base.metadata.tables.keys())
+
+
 def test_workflow_table_shape() -> None:
     from app.models.workflow import Workflow
 
@@ -80,15 +92,3 @@ def test_execution_event_is_append_only() -> None:
         "payload",
         "created_at",
     } == set(cols.keys())
-
-
-def test_all_tables_registered_on_metadata() -> None:
-    from app.models import Base
-
-    assert {
-        "users",
-        "agents",
-        "workflows",
-        "workflow_executions",
-        "execution_events",
-    } <= set(Base.metadata.tables.keys())
