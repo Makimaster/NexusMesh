@@ -1,4 +1,6 @@
 """M2 五阶段协议单测。"""
+from datetime import datetime, timezone
+
 import pytest
 from pydantic import ValidationError
 
@@ -7,6 +9,7 @@ from app.protocol.events import (
     ExecutePayload,
     FinishPayload,
     InitPayload,
+    ProtocolEvent,
     ReceivePayload,
     RoutePayload,
 )
@@ -91,3 +94,45 @@ def test_finish_payload_success():
 def test_finish_payload_no_output():
     p = FinishPayload(success=False)
     assert p.output is None
+
+
+def test_protocol_event_valid():
+    event = ProtocolEvent(
+        protocol_stage=ProtocolStage.EXECUTE,
+        event_type=EventType.AGENT_FINISH,
+        payload=ExecutePayload(
+            agent_message="完成",
+            prompt_tokens=100,
+            completion_tokens=50,
+            model="gpt-4o",
+            model_cost_usd=0.002,
+        ),
+    )
+    assert event.protocol_stage == ProtocolStage.EXECUTE
+    assert event.event_type == EventType.AGENT_FINISH
+    assert isinstance(event.created_at, datetime)
+
+
+def test_protocol_event_created_at_is_utc():
+    event = ProtocolEvent(
+        protocol_stage=ProtocolStage.INIT,
+        event_type=EventType.AGENT_SPAWN,
+        payload=InitPayload(agent_id="a1", workflow_id="w1"),
+    )
+    assert event.created_at.tzinfo is not None
+
+
+def test_wrong_payload_type_raises():
+    """INIT stage 但传入 EXECUTE payload → ValidationError。"""
+    with pytest.raises(ValidationError):
+        ProtocolEvent(
+            protocol_stage=ProtocolStage.INIT,
+            event_type=EventType.AGENT_SPAWN,
+            payload=ExecutePayload(
+                agent_message="错误的 payload",
+                prompt_tokens=1,
+                completion_tokens=1,
+                model="gpt-4o",
+                model_cost_usd=0.0,
+            ),
+        )
