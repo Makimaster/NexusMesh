@@ -35,3 +35,29 @@ def test_workflow_table_shape() -> None:
         "created_at",
         "updated_at",
     } <= set(cols.keys())
+
+
+def test_workflow_execution_table_shape() -> None:
+    from app.models.execution import WorkflowExecution
+
+    cols = WorkflowExecution.__table__.columns
+    assert cols["workflow_id"].foreign_keys
+    assert ("workflow_id",) in _indexed_columns(WorkflowExecution)
+    assert cols["status"].nullable is False
+    assert cols["input"].nullable is False
+    assert cols["output"].nullable is True
+    assert cols["started_at"].nullable is True
+    assert cols["finished_at"].nullable is True
+    assert {
+        "id",
+        "org_id",
+        "workflow_id",
+        "status",
+        "input",
+        "output",
+        "error",
+        "started_at",
+        "finished_at",
+        "created_at",
+        "updated_at",
+    } <= set(cols.keys())
