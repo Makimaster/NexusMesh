@@ -78,7 +78,7 @@ class ProtocolEvent(BaseModel):
     传错类型时 model_validator 抛 ValidationError，Fail-Fast。
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
     protocol_stage: ProtocolStage
     event_type: EventType

@@ -153,6 +153,32 @@ def test_protocol_event_normalizes_non_utc_created_at():
     assert event.created_at == datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 
 
+def test_protocol_event_rejects_naive_created_at_on_assignment():
+    """validate_assignment：构造后再赋 naive 时间也应被拒绝，守住 to_payload 不变量。"""
+    event = ProtocolEvent(
+        protocol_stage=ProtocolStage.INIT,
+        event_type=EventType.AGENT_SPAWN,
+        payload=InitPayload(agent_id="a1", workflow_id="w1"),
+    )
+
+    with pytest.raises(ValidationError, match="created_at"):
+        event.created_at = datetime(2026, 7, 1, 12, 0, 0)
+
+
+def test_protocol_event_normalizes_created_at_on_assignment():
+    """validate_assignment：赋非 UTC 时间应归一化，to_payload 始终吐 UTC。"""
+    event = ProtocolEvent(
+        protocol_stage=ProtocolStage.INIT,
+        event_type=EventType.AGENT_SPAWN,
+        payload=InitPayload(agent_id="a1", workflow_id="w1"),
+    )
+
+    event.created_at = datetime.fromisoformat("2026-07-01T20:00:00+08:00")
+
+    assert event.created_at.tzinfo is UTC
+    assert to_payload(event)["created_at"] == "2026-07-01T12:00:00+00:00"
+
+
 def test_wrong_payload_type_raises():
     """INIT stage 但传入 EXECUTE payload → ValidationError。"""
     with pytest.raises(ValidationError):

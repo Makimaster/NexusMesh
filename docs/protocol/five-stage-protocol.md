@@ -161,6 +161,7 @@ ProtocolEvent(
 - 如果输入时间没有时区信息，会抛出 `ValueError("created_at must be timezone-aware")`
 - 反序列化成功后会统一归一化到 UTC
 - 直接构造 `ProtocolEvent` 时也遵循同样规则：拒绝 naive 时间，接受 aware 时间并统一归一化为 UTC
+- 构造之后再对 `created_at` 赋值也会走同样校验（`validate_assignment=True`），因此 `to_payload()` 出站的时间永远是 UTC-aware，不会被赋值绕过
 
 例如输入 `2026-07-01T20:00:00+08:00`，还原后的 `ProtocolEvent.created_at` 会变为 `2026-07-01T12:00:00+00:00`。
 
