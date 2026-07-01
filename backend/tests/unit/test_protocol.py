@@ -13,6 +13,7 @@ from app.protocol.events import (
     ReceivePayload,
     RoutePayload,
 )
+from app.protocol.serializer import from_payload, to_payload
 from app.protocol.stages import ProtocolStage
 
 
@@ -136,3 +137,112 @@ def test_wrong_payload_type_raises():
                 model_cost_usd=0.0,
             ),
         )
+
+
+def test_execute_round_trip():
+    event = ProtocolEvent(
+        protocol_stage=ProtocolStage.EXECUTE,
+        event_type=EventType.AGENT_CALL,
+        payload=ExecutePayload(
+            agent_message="已调用模型",
+            prompt_tokens=120,
+            completion_tokens=30,
+            model="gpt-4o",
+            model_cost_usd=0.0012,
+        ),
+    )
+
+    assert from_payload(to_payload(event)) == event
+
+
+def test_init_round_trip():
+    event = ProtocolEvent(
+        protocol_stage=ProtocolStage.INIT,
+        event_type=EventType.AGENT_SPAWN,
+        payload=InitPayload(agent_id="agent-001", workflow_id="wf-001"),
+    )
+
+    assert from_payload(to_payload(event)) == event
+
+
+def test_to_payload_execute_shape():
+    event = ProtocolEvent(
+        protocol_stage=ProtocolStage.EXECUTE,
+        event_type=EventType.AGENT_FINISH,
+        payload=ExecutePayload(
+            agent_message="执行完成",
+            prompt_tokens=300,
+            completion_tokens=80,
+            model="gpt-4o",
+            model_cost_usd=0.004,
+        ),
+    )
+
+    data = to_payload(event)
+
+    assert data == {
+        "protocol_stage": "EXECUTE",
+        "event_type": "agent_finish",
+        "created_at": event.created_at.isoformat(),
+        "agent_message": "执行完成",
+        "prompt_tokens": 300,
+        "completion_tokens": 80,
+        "model": "gpt-4o",
+        "model_cost_usd": 0.004,
+    }
+
+
+def test_from_payload_invalid_execute_missing_field():
+    data = {
+        "protocol_stage": "EXECUTE",
+        "event_type": "agent_call",
+        "created_at": datetime.now().isoformat(),
+        "agent_message": "缺少必填字段",
+    }
+
+    with pytest.raises(ValidationError):
+        from_payload(data)
+
+
+def test_receive_round_trip():
+    event = ProtocolEvent(
+        protocol_stage=ProtocolStage.RECEIVE,
+        event_type=EventType.AGENT_CALL,
+        payload=ReceivePayload(task_input={"query": "hello", "priority": "high"}),
+    )
+
+    assert from_payload(to_payload(event)) == event
+
+
+def test_route_round_trip():
+    event = ProtocolEvent(
+        protocol_stage=ProtocolStage.ROUTE,
+        event_type=EventType.AGENT_REFLECT,
+        payload=RoutePayload(
+            next_agent_id="agent-002",
+            routing_reason="需要交给检索 Agent",
+        ),
+    )
+
+    assert from_payload(to_payload(event)) == event
+
+
+def test_finish_round_trip():
+    event = ProtocolEvent(
+        protocol_stage=ProtocolStage.FINISH,
+        event_type=EventType.AGENT_FINISH,
+        payload=FinishPayload(success=True, output={"result": "完成"}),
+    )
+
+    assert from_payload(to_payload(event)) == event
+
+
+def test_from_payload_invalid_stage():
+    data = {
+        "protocol_stage": "UNKNOWN",
+        "event_type": "agent_call",
+        "created_at": datetime.now().isoformat(),
+    }
+
+    with pytest.raises(ValueError):
+        from_payload(data)
