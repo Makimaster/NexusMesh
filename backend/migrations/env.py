@@ -20,12 +20,28 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+# 手写管理的索引名单：autogenerate 无法表达（部分索引、DESC 排序），
+# 由迁移手工维护，故从自动比对中排除，避免 alembic check 反复要求删除。
+_MANUAL_INDEXES = {
+    "ix_workflow_executions_active_status",
+    "ix_execution_events_created_at_desc",
+}
+
+
+# alembic 回调，签名由框架固定（object/name/type_/reflected/compare_to）。
+def include_object(object_, name, type_, reflected, compare_to):
+    if type_ == "index" and name in _MANUAL_INDEXES:
+        return False
+    return True
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=settings.DATABASE_URL,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -33,7 +49,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+    )
 
     with context.begin_transaction():
         context.run_migrations()
