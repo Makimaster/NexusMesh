@@ -78,11 +78,11 @@ class ProtocolEvent(BaseModel):
     event_type: EventType
     payload: Any
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
+        default_factory=lambda: datetime.now(timezone.utc)  # noqa: UP017
     )
 
     @model_validator(mode="after")
-    def _check_payload_matches_stage(self) -> "ProtocolEvent":
+    def _check_payload_matches_stage(self) -> ProtocolEvent:
         expected_cls = _PAYLOAD_CLS_MAP[self.protocol_stage]
         if not isinstance(self.payload, expected_cls):
             raise ValueError(
