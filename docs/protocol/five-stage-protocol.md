@@ -59,7 +59,7 @@ ProtocolEvent(
 | `protocol_stage` | `ProtocolStage` | 五阶段之一 |
 | `event_type` | `EventType` | 标准事件类型之一 |
 | `payload` | `Any` | 运行时会校验为与 `protocol_stage` 匹配的 payload 模型 |
-| `created_at` | `datetime` | 默认使用 timezone-aware UTC 当前时间 |
+| `created_at` | `datetime` | 必须是 timezone-aware；默认使用当前 UTC 时间，传入非 UTC aware 时间时会归一化为 UTC |
 
 `ProtocolEvent` 在 `events.py` 中通过 `model_validator(mode="after")` 强制校验 `payload` 与阶段的对应关系：
 
@@ -70,6 +70,12 @@ ProtocolEvent(
 - `FINISH` 必须使用 `FinishPayload`
 
 不匹配时会抛出 `ValidationError`。
+
+`ProtocolEvent.created_at` 也在模型层面执行一致的时间约束：
+
+- 默认值始终是 timezone-aware 的 UTC 时间
+- 显式传入 naive `datetime` 会抛出 `ValidationError`
+- 显式传入带时区但非 UTC 的 `datetime` 会先接受，再统一归一化为 UTC
 
 ## 5. 各阶段 payload
 
@@ -140,6 +146,12 @@ ProtocolEvent(
 
 其余顶层字段都视为具体阶段 payload 的字段。
 
+当前 payload 模型对未知字段采用拒绝策略：
+
+- `from_payload()` 会把除信封字段外的顶层键交给对应阶段的 payload 模型校验
+- 若出现该阶段未声明的字段，会抛出 `ValidationError`
+- 实现不会静默忽略未知 payload 字段，以便尽早暴露协议漂移或字段拼写错误
+
 ## 7. `created_at` 规则
 
 当前实现对 `created_at` 有明确约束：
@@ -148,6 +160,7 @@ ProtocolEvent(
 - `from_payload()` 要求输入必须是 timezone-aware ISO 字符串
 - 如果输入时间没有时区信息，会抛出 `ValueError("created_at must be timezone-aware")`
 - 反序列化成功后会统一归一化到 UTC
+- 直接构造 `ProtocolEvent` 时也遵循同样规则：拒绝 naive 时间，接受 aware 时间并统一归一化为 UTC
 
 例如输入 `2026-07-01T20:00:00+08:00`，还原后的 `ProtocolEvent.created_at` 会变为 `2026-07-01T12:00:00+00:00`。
 

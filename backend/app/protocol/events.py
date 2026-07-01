@@ -1,11 +1,11 @@
 """五阶段协议事件类型枚举与分阶段 payload 模型。"""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.protocol.stages import ProtocolStage
 
@@ -19,27 +19,33 @@ class EventType(str, Enum):
     AGENT_REFLECT = "agent_reflect"
 
 
-class InitPayload(BaseModel):
+class _ProtocolPayload(BaseModel):
+    """协议 payload 基类：拒绝未知字段，避免静默吞掉协议漂移。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class InitPayload(_ProtocolPayload):
     """INIT 阶段：建立 Agent 上下文。"""
 
     agent_id: str
     workflow_id: str
 
 
-class ReceivePayload(BaseModel):
+class ReceivePayload(_ProtocolPayload):
     """RECEIVE 阶段：接收任务输入。"""
 
     task_input: dict
 
 
-class RoutePayload(BaseModel):
+class RoutePayload(_ProtocolPayload):
     """ROUTE 阶段：多跳路由决策。"""
 
     next_agent_id: str | None = None
     routing_reason: str | None = None
 
 
-class ExecutePayload(BaseModel):
+class ExecutePayload(_ProtocolPayload):
     """EXECUTE 阶段：LLM 调用结果，对齐设计文档 §8.3。"""
 
     agent_message: str
@@ -49,7 +55,7 @@ class ExecutePayload(BaseModel):
     model_cost_usd: float
 
 
-class FinishPayload(BaseModel):
+class FinishPayload(_ProtocolPayload):
     """FINISH 阶段：写入执行记录。"""
 
     success: bool
@@ -80,6 +86,13 @@ class ProtocolEvent(BaseModel):
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)  # noqa: UP017
     )
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def _normalize_created_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("created_at must be timezone-aware")
+        return value.astimezone(UTC)
 
     @model_validator(mode="after")
     def _check_payload_matches_stage(self) -> ProtocolEvent:

@@ -127,7 +127,30 @@ def test_protocol_event_created_at_is_utc():
         event_type=EventType.AGENT_SPAWN,
         payload=InitPayload(agent_id="a1", workflow_id="w1"),
     )
-    assert event.created_at.tzinfo is not None
+    assert event.created_at.tzinfo is UTC
+    assert event.created_at.utcoffset() == UTC.utcoffset(event.created_at)
+
+
+def test_protocol_event_rejects_naive_created_at():
+    with pytest.raises(ValidationError, match="created_at"):
+        ProtocolEvent(
+            protocol_stage=ProtocolStage.INIT,
+            event_type=EventType.AGENT_SPAWN,
+            payload=InitPayload(agent_id="a1", workflow_id="w1"),
+            created_at=datetime(2026, 7, 1, 12, 0, 0),
+        )
+
+
+def test_protocol_event_normalizes_non_utc_created_at():
+    event = ProtocolEvent(
+        protocol_stage=ProtocolStage.INIT,
+        event_type=EventType.AGENT_SPAWN,
+        payload=InitPayload(agent_id="a1", workflow_id="w1"),
+        created_at=datetime.fromisoformat("2026-07-01T20:00:00+08:00"),
+    )
+
+    assert event.created_at.tzinfo is UTC
+    assert event.created_at == datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 
 
 def test_wrong_payload_type_raises():
@@ -242,6 +265,20 @@ def test_from_payload_normalizes_created_at_to_utc():
 
     assert event.created_at.tzinfo is UTC
     assert event.created_at == datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+
+
+def test_from_payload_rejects_unknown_payload_fields():
+    data = {
+        "protocol_stage": "INIT",
+        "event_type": "agent_spawn",
+        "created_at": datetime.now(UTC).isoformat(),
+        "agent_id": "agent-001",
+        "workflow_id": "wf-001",
+        "unexpected_field": "boom",
+    }
+
+    with pytest.raises(ValidationError, match="unexpected_field"):
+        from_payload(data)
 
 
 def test_protocol_package_exports_public_api():
