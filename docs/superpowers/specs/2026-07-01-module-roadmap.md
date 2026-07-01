@@ -111,7 +111,7 @@ orchestrator/ → protocol/       → common/
 - **落地**：`protocol/stages.py`、`protocol/events.py`、`protocol/serializer.py`、`protocol/schemas/`。
 - **输入 / 输出 / 依赖**：输入为阶段数据结构；输出为经校验的序列化事件；仅依赖 `common`（最纯粹，可完全独立单测）。
 - **要点**：阶段枚举 + 标准事件类型（`agent_spawn`/`agent_call`/`agent_finish`/`agent_reflect`）；JSON Schema 强校验；`execution_events.payload` 字段规范（设计文档 §8.3）作为序列化目标。
-- **DoD**：每个阶段与事件类型有往返（封包→序列化→反序列化→校验）单测；非法 payload 被 Schema 拒绝的负向测试通过。
+- **DoD**：每个阶段与事件类型有往返（封包→序列化→反序列化→校验）单测；非法 payload 被 Schema 拒绝的负向测试通过；`docs/protocol/` 写入五阶段协议正式规范（趁实现新鲜）。
 - **前置**：common（已有）。
 
 #### M3 Redis 状态机
@@ -167,7 +167,7 @@ orchestrator/ → protocol/       → common/
 - **落地**：`api/v1/agents.py`、`api/v1/workflows.py`、`api/v1/executions.py`、对应 `schemas/`。
 - **输入 / 输出 / 依赖**：输入为 HTTP 请求；输出为 Pydantic 响应；依赖 M6、M7，复用 Phase 1 的 RBAC 依赖（`require_role`）。
 - **要点**：沿用 Phase 1 auth 路由风格（`APIRouter` + `Depends` + `response_model`）；RBAC 分级；OpenAPI 自动文档。
-- **DoD**：各端点有 TestClient 集成测试（含鉴权/权限负向用例）；OpenAPI schema 生成无误。
+- **DoD**：各端点有 TestClient 集成测试（含鉴权/权限负向用例）；OpenAPI schema 生成无误；`docs/api/` 写入 REST API 文档（可从 OpenAPI 导出）。
 - **前置**：M6、M7。
 
 ### Phase 4 — 前端可视化
@@ -239,8 +239,8 @@ orchestrator/ → protocol/       → common/
 - **职责**：压测、性能优化、补全 `docs/` 各文档、开源推广前收尾。
 - **落地**：全局；`docs/{architecture,protocol,api,development}/`。
 - **输入 / 输出 / 依赖**：依赖 M14。
-- **要点**：填充 Phase 1 建立的空文档目录；WebSocket 高并发按需驱动优化（§11）。
-- **DoD**：压测报告存档；`docs/` 四个目录有对应文档；README/协议文档与实现一致。
+- **要点**：新增 `docs/{architecture,development}/` 文档；`docs/{protocol,api}/` 已分别在 M2、M8 写就，此处仅做与最终实现的一致性校对；WebSocket 高并发按需驱动优化（§11）。
+- **DoD**：压测报告存档；`docs/` 四个目录均有对应文档；README/协议/API 文档与实现一致。
 - **前置**：M14。
 
 ---
