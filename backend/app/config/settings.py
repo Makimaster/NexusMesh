@@ -1,7 +1,12 @@
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# 项目根目录下的 .env（backend/app/config/settings.py 向上 3 级）。
+# 使用绝对路径，确保无论从哪个工作目录启动后端都能定位到同一份配置。
+_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
 class AppSettings(BaseSettings):
@@ -74,7 +79,7 @@ class AppSettings(BaseSettings):
         return v  # type: ignore[return-value]
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",

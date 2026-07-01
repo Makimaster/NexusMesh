@@ -5,11 +5,11 @@ WORKDIR /app
 # 安装 uv
 RUN pip install --no-cache-dir uv
 
-# 复制依赖文件
-COPY pyproject.toml .
+# 复制依赖文件（含 uv.lock，锁定精确版本，与本地开发一致）
+COPY pyproject.toml uv.lock ./
 
-# 生产环境安装（不含 dev 依赖）
-RUN uv sync --no-dev
+# 生产环境安装（不含 dev 依赖），--frozen 强制按 uv.lock 精确复现
+RUN uv sync --frozen --no-dev
 
 # 复制应用代码
 COPY app/ ./app/
