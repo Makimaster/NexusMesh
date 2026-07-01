@@ -1,5 +1,5 @@
 """M2 五阶段协议单测。"""
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -15,6 +15,13 @@ from app.protocol.events import (
 )
 from app.protocol.serializer import from_payload, to_payload
 from app.protocol.stages import ProtocolStage
+
+
+def _assert_flat_payload_shape(data):
+    assert "protocol_stage" in data
+    assert "event_type" in data
+    assert "created_at" in data
+    assert "payload" not in data
 
 
 def test_protocol_stage_values():
@@ -162,7 +169,12 @@ def test_init_round_trip():
         payload=InitPayload(agent_id="agent-001", workflow_id="wf-001"),
     )
 
-    assert from_payload(to_payload(event)) == event
+    data = to_payload(event)
+
+    _assert_flat_payload_shape(data)
+    assert data["agent_id"] == "agent-001"
+    assert data["workflow_id"] == "wf-001"
+    assert from_payload(data) == event
 
 
 def test_to_payload_execute_shape():
@@ -196,12 +208,40 @@ def test_from_payload_invalid_execute_missing_field():
     data = {
         "protocol_stage": "EXECUTE",
         "event_type": "agent_call",
-        "created_at": datetime.now().isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "agent_message": "缺少必填字段",
     }
 
     with pytest.raises(ValidationError):
         from_payload(data)
+
+
+def test_from_payload_rejects_naive_created_at():
+    data = {
+        "protocol_stage": "INIT",
+        "event_type": "agent_spawn",
+        "created_at": "2026-07-01T12:00:00",
+        "agent_id": "agent-001",
+        "workflow_id": "wf-001",
+    }
+
+    with pytest.raises(ValueError, match="created_at"):
+        from_payload(data)
+
+
+def test_from_payload_normalizes_created_at_to_utc():
+    event = from_payload(
+        {
+            "protocol_stage": "INIT",
+            "event_type": "agent_spawn",
+            "created_at": "2026-07-01T20:00:00+08:00",
+            "agent_id": "agent-001",
+            "workflow_id": "wf-001",
+        }
+    )
+
+    assert event.created_at.tzinfo is UTC
+    assert event.created_at == datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 
 
 def test_receive_round_trip():
@@ -211,7 +251,11 @@ def test_receive_round_trip():
         payload=ReceivePayload(task_input={"query": "hello", "priority": "high"}),
     )
 
-    assert from_payload(to_payload(event)) == event
+    data = to_payload(event)
+
+    _assert_flat_payload_shape(data)
+    assert data["task_input"] == {"query": "hello", "priority": "high"}
+    assert from_payload(data) == event
 
 
 def test_route_round_trip():
@@ -224,7 +268,12 @@ def test_route_round_trip():
         ),
     )
 
-    assert from_payload(to_payload(event)) == event
+    data = to_payload(event)
+
+    _assert_flat_payload_shape(data)
+    assert data["next_agent_id"] == "agent-002"
+    assert data["routing_reason"] == "需要交给检索 Agent"
+    assert from_payload(data) == event
 
 
 def test_finish_round_trip():
@@ -234,14 +283,19 @@ def test_finish_round_trip():
         payload=FinishPayload(success=True, output={"result": "完成"}),
     )
 
-    assert from_payload(to_payload(event)) == event
+    data = to_payload(event)
+
+    _assert_flat_payload_shape(data)
+    assert data["success"] is True
+    assert data["output"] == {"result": "完成"}
+    assert from_payload(data) == event
 
 
 def test_from_payload_invalid_stage():
     data = {
         "protocol_stage": "UNKNOWN",
         "event_type": "agent_call",
-        "created_at": datetime.now().isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
 
     with pytest.raises(ValueError):
