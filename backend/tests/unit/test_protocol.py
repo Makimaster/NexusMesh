@@ -244,6 +244,30 @@ def test_from_payload_normalizes_created_at_to_utc():
     assert event.created_at == datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 
 
+def test_protocol_package_exports_public_api():
+    from app.protocol import (
+        EventType as PackageEventType,
+    )
+    from app.protocol import (
+        ProtocolEvent as PackageProtocolEvent,
+    )
+    from app.protocol import (
+        ProtocolStage as PackageProtocolStage,
+    )
+    from app.protocol import (
+        from_payload as package_from_payload,
+    )
+    from app.protocol import (
+        to_payload as package_to_payload,
+    )
+
+    assert PackageProtocolEvent is ProtocolEvent
+    assert PackageProtocolStage is ProtocolStage
+    assert PackageEventType is EventType
+    assert callable(package_to_payload)
+    assert callable(package_from_payload)
+
+
 def test_receive_round_trip():
     event = ProtocolEvent(
         protocol_stage=ProtocolStage.RECEIVE,
