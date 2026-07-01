@@ -1,4 +1,15 @@
 """M2 五阶段协议单测。"""
+import pytest
+from pydantic import ValidationError
+
+from app.protocol.events import (
+    EventType,
+    ExecutePayload,
+    FinishPayload,
+    InitPayload,
+    ReceivePayload,
+    RoutePayload,
+)
 from app.protocol.stages import ProtocolStage
 
 
@@ -13,18 +24,6 @@ def test_protocol_stage_values():
 def test_protocol_stage_from_string():
     """str 子类特性：可从字符串构造枚举成员。"""
     assert ProtocolStage("EXECUTE") == ProtocolStage.EXECUTE
-
-
-from app.protocol.events import (
-    EventType,
-    ExecutePayload,
-    FinishPayload,
-    InitPayload,
-    ReceivePayload,
-    RoutePayload,
-)
-import pytest
-from pydantic import ValidationError
 
 
 def test_event_type_values():
