@@ -1,5 +1,5 @@
 """M2 五阶段协议单测。"""
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pytest
 from pydantic import ValidationError
