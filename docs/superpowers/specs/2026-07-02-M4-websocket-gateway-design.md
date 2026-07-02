@@ -122,36 +122,54 @@ class Broadcaster:
             self._channels.pop(channel, None)
 
     def _extract_execution_id(self, channel: str) -> str | None:
-        """从 'channel:execution:{id}:events' 提取 execution_id。"""
+        """从 'channel:execution:{id}:events' 提取 execution_id。
+
+        空字符串 execution_id 视为非法，返回 None。
+        """
         parts = channel.split(":")
         # 格式固定：channel / execution / {id} / events → 4 段
         if len(parts) == 4 and parts[0] == "channel" and parts[3] == "events":
-            return parts[2]
+            execution_id = parts[2]
+            return execution_id if execution_id else None
         return None
 
     async def _listen_loop(self) -> None:
-        try:
-            async for message in self._pubsub.listen():
-                if message["type"] != "pmessage":
-                    continue
-                channel = message["channel"]
-                if isinstance(channel, bytes):
-                    channel = channel.decode()
-                execution_id = self._extract_execution_id(channel)
-                if execution_id is None:
-                    continue
-                data = message["data"]
-                if isinstance(data, bytes):
-                    data = data.decode()
-                sockets = list(self._channels.get(channel, set()))
-                for ws in sockets:
-                    try:
-                        await ws.send_text(data)
-                    except Exception:
-                        # 静默忽略；handlers.on_disconnect 的 finally 负责清理
-                        pass
-        except asyncio.CancelledError:
-            pass
+        """Redis psubscribe 监听循环。
+
+        偶发 ConnectionError 时记录警告并等待 1s 后重连，不让 Task 彻底挂掉。
+        正常 CancelledError（lifespan stop）则优雅退出。
+        """
+        from redis.exceptions import RedisError
+
+        while True:
+            try:
+                async for message in self._pubsub.listen():
+                    if message["type"] != "pmessage":
+                        continue
+                    channel = message["channel"]
+                    if isinstance(channel, bytes):
+                        channel = channel.decode()
+                    execution_id = self._extract_execution_id(channel)
+                    if execution_id is None:
+                        continue
+                    data = message["data"]
+                    if isinstance(data, bytes):
+                        data = data.decode()
+                    sockets = list(self._channels.get(channel, set()))
+                    for ws in sockets:
+                        try:
+                            await ws.send_text(data)
+                        except Exception:
+                            pass
+            except asyncio.CancelledError:
+                return  # lifespan stop，正常退出
+            except (RedisError, ConnectionError):
+                # 网络抖动，等待后重新 psubscribe
+                await asyncio.sleep(1)
+                try:
+                    await self._pubsub.psubscribe("channel:execution:*:events")
+                except Exception:
+                    pass
 
     def _clear_for_test(self) -> None:
         """仅供测试使用：清空进程内连接映射，防止用例间污染。"""
