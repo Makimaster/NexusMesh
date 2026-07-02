@@ -46,6 +46,8 @@ class SessionManager:
     ) -> None:
         """前端切换看板时，单独更新 subscribed_execution_id。"""
         key = get_session_key(session_id)
+        if not await self._redis.exists(key):
+            raise ValueError("session not found")
         await self._redis.hset(key, "subscribed_execution_id", execution_id)
 
     async def delete(self, session_id: str) -> None:

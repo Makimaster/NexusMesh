@@ -52,6 +52,15 @@ async def session_id(redis_client):
 
 
 @pytest.fixture
+async def missing_session_id(redis_client):
+    session_id_value = f"missing-sess-{uuid4()}"
+
+    yield session_id_value
+
+    await redis_client.delete(get_session_key(session_id_value))
+
+
+@pytest.fixture
 def sess_mgr(redis_client):
     return SessionManager(redis_client)
 
@@ -105,21 +114,38 @@ async def test_context_delete(ctx_mgr, context_ids):
 async def test_session_create_and_get(sess_mgr, session_id):
     await sess_mgr.create(session_id, "user-1", "exec-1")
     result = await sess_mgr.get(session_id)
+    ttl = await sess_mgr._redis.ttl(get_session_key(session_id))
     assert result["user_id"] == "user-1"
     assert result["subscribed_execution_id"] == "exec-1"
     assert "connected_at" in result
+    assert 0 < ttl <= SessionManager.TTL
 
 
-async def test_session_get_missing_returns_none(sess_mgr):
-    assert await sess_mgr.get("no-such-session") is None
+async def test_session_get_missing_returns_none(sess_mgr, missing_session_id):
+    assert await sess_mgr.get(missing_session_id) is None
 
 
 async def test_session_update_subscription(sess_mgr, session_id):
     await sess_mgr.create(session_id, "user-2", "exec-A")
+    key = get_session_key(session_id)
+    initial_ttl = await sess_mgr._redis.ttl(key)
+    await asyncio.sleep(1.1)
+    ttl_before_update = await sess_mgr._redis.ttl(key)
     await sess_mgr.update_subscription(session_id, "exec-B")
+    ttl_after_update = await sess_mgr._redis.ttl(key)
     result = await sess_mgr.get(session_id)
     assert result["subscribed_execution_id"] == "exec-B"
     assert result["user_id"] == "user-2"
+    assert initial_ttl > ttl_before_update > 0
+    assert ttl_after_update <= ttl_before_update
+    assert ttl_after_update > 0
+
+
+async def test_session_update_subscription_missing_raises_value_error(
+    sess_mgr, missing_session_id
+):
+    with pytest.raises(ValueError, match="session not found"):
+        await sess_mgr.update_subscription(missing_session_id, "exec-B")
 
 
 async def test_session_delete(sess_mgr, session_id):
