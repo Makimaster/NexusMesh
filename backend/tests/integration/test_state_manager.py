@@ -11,6 +11,7 @@ import pytest
 import redis.asyncio
 
 from app.state_manager.context import AgentContextManager
+from app.state_manager.exceptions import ConcurrencyError
 from app.state_manager.keys import (
     get_agent_context_key,
     get_session_key,
@@ -268,9 +269,14 @@ async def test_task_transition_refreshes_ttl(task_mgr, redis_client):
     await task_mgr.delete(execution_id)
     try:
         await task_mgr.create(execution_id)
+        key = get_task_state_key(execution_id)
+        initial_ttl = await redis_client.ttl(key)
+        await asyncio.sleep(1.1)
+        ttl_before_transition = await redis_client.ttl(key)
         await task_mgr.transition(execution_id, "FINISH", "completed")
-        ttl = await redis_client.ttl(get_task_state_key(execution_id))
-        assert ttl > 0
+        ttl_after_transition = await redis_client.ttl(key)
+        assert initial_ttl > ttl_before_transition > 0
+        assert ttl_after_transition > ttl_before_transition
     finally:
         await task_mgr.delete(execution_id)
 
@@ -278,3 +284,47 @@ async def test_task_transition_refreshes_ttl(task_mgr, redis_client):
 async def test_task_transition_missing_key_raises(task_mgr):
     with pytest.raises(ValueError):
         await task_mgr.transition("no-exec-999", "RECEIVE", "running")
+
+
+async def test_task_transition_conflict_backoff_every_failure(monkeypatch):
+    sleep_calls = []
+
+    async def fake_sleep(delay):
+        sleep_calls.append(delay)
+
+    class AlwaysConflictPipeline:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def watch(self, key):
+            return None
+
+        async def hgetall(self, key):
+            return {"version": "0"}
+
+        def multi(self):
+            return None
+
+        def hset(self, key, mapping):
+            return None
+
+        def expire(self, key, ttl):
+            return None
+
+        async def execute(self):
+            raise redis.asyncio.WatchError
+
+    class AlwaysConflictRedis:
+        def pipeline(self):
+            return AlwaysConflictPipeline()
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    task_mgr = TaskStateManager(AlwaysConflictRedis())
+
+    with pytest.raises(ConcurrencyError):
+        await task_mgr.transition("exec-conflict", "EXECUTE", "running")
+
+    assert sleep_calls == [0.005, 0.01, 0.015]

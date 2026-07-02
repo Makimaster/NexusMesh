@@ -86,8 +86,7 @@ class TaskStateManager:
                     await pipe.execute()
                     return
                 except WatchError:
-                    if attempt == self.MAX_RETRIES - 1:
-                        break
+                    pass
 
             await asyncio.sleep(0.005 * (attempt + 1))
 
