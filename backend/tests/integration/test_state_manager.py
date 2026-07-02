@@ -328,3 +328,90 @@ async def test_task_transition_conflict_backoff_every_failure(monkeypatch):
         await task_mgr.transition("exec-conflict", "EXECUTE", "running")
 
     assert sleep_calls == [0.005, 0.01, 0.015]
+
+
+async def test_concurrent_transition_raises(task_mgr):
+    """乐观锁冲突验证：4 路并发同时流转同一 execution_id。
+
+    MAX_RETRIES=1 确保冲突必触发 ConcurrencyError（不靠重试消化）。
+    至少一个成功、至少一个失败、总数等于任务数——三条断言缺一不可。
+    """
+    execution_id = "exec-concurrent-001"
+    await task_mgr.delete(execution_id)
+    try:
+        await task_mgr.create(execution_id)
+        task_mgr.MAX_RETRIES = 1
+        task_count = 4
+        ready_count = 0
+        ready_lock = asyncio.Lock()
+        release = asyncio.Event()
+
+        class BarrierPipeline:
+            def __init__(self, inner):
+                self._inner = inner
+
+            async def __aenter__(self):
+                await self._inner.__aenter__()
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return await self._inner.__aexit__(exc_type, exc, tb)
+
+            async def watch(self, key):
+                return await self._inner.watch(key)
+
+            async def hgetall(self, key):
+                nonlocal ready_count
+                current = await self._inner.hgetall(key)
+                async with ready_lock:
+                    ready_count += 1
+                    if ready_count == task_count:
+                        release.set()
+                await release.wait()
+                return current
+
+            async def unwatch(self):
+                return await self._inner.unwatch()
+
+            def multi(self):
+                return self._inner.multi()
+
+            def hset(self, key, mapping):
+                return self._inner.hset(key, mapping=mapping)
+
+            def expire(self, key, ttl):
+                return self._inner.expire(key, ttl)
+
+            async def execute(self):
+                return await self._inner.execute()
+
+        class BarrierRedis:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def pipeline(self):
+                return BarrierPipeline(self._inner.pipeline())
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+        task_mgr._redis = BarrierRedis(task_mgr._redis)
+
+        tasks = [
+            task_mgr.transition(execution_id, "RECEIVE", "running"),
+            task_mgr.transition(execution_id, "ROUTE", "running"),
+            task_mgr.transition(execution_id, "EXECUTE", "running"),
+            task_mgr.transition(execution_id, "FINISH", "completed"),
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        success_count = sum(1 for result in results if result is None)
+        error_count = sum(
+            1 for result in results if isinstance(result, ConcurrencyError)
+        )
+
+        assert success_count >= 1
+        assert error_count >= 1
+        assert success_count + error_count == len(tasks)
+    finally:
+        await task_mgr.delete(execution_id)
