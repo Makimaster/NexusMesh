@@ -11,7 +11,11 @@ import pytest
 import redis.asyncio
 
 from app.state_manager.context import AgentContextManager
-from app.state_manager.keys import get_agent_context_key, get_session_key
+from app.state_manager.keys import (
+    get_agent_context_key,
+    get_session_key,
+    get_task_state_key,
+)
 from app.state_manager.session import SessionManager
 from app.state_manager.task_state import TaskStateManager
 
@@ -72,7 +76,7 @@ async def task_execution_id(redis_client):
 
     yield execution_id
 
-    await redis_client.delete(f"task_state:{execution_id}")
+    await redis_client.delete(get_task_state_key(execution_id))
 
 
 @pytest.fixture
@@ -202,6 +206,7 @@ async def test_task_create_and_get(task_mgr, task_execution_id):
     state = await task_mgr.get(task_execution_id)
     assert state["status"] == "pending"
     assert state["protocol_stage"] == "INIT"
+    assert state["current_agent_id"] == ""
     assert state["version"] == "0"
 
 
@@ -224,5 +229,5 @@ async def test_task_delete(task_mgr, task_execution_id):
 
 async def test_task_create_sets_ttl(task_mgr, redis_client, task_execution_id):
     await task_mgr.create(task_execution_id)
-    ttl = await redis_client.ttl(f"task_state:{task_execution_id}")
-    assert ttl > 0
+    ttl = await redis_client.ttl(get_task_state_key(task_execution_id))
+    assert TaskStateManager.TTL - 5 <= ttl <= TaskStateManager.TTL
