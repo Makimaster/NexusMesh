@@ -4,6 +4,8 @@
 每个测试用例结束后 fixture 自动 FLUSHDB DB 1，防止脏数据。
 """
 
+import asyncio
+
 import pytest
 import redis.asyncio
 
@@ -48,9 +50,16 @@ async def test_context_set_refreshes_ttl(ctx_mgr, redis_client):
     await ctx_mgr.set("exec-2", "agent-2", {"x": 1})
 
     key = "agent_context:exec-2:agent-2"
-    ttl = await redis_client.ttl(key)
+    initial_ttl = await redis_client.ttl(key)
 
-    assert ttl > 0
+    await asyncio.sleep(1.1)
+
+    ttl_before_refresh = await redis_client.ttl(key)
+    await ctx_mgr.set("exec-2", "agent-2", {"x": 2})
+    ttl_after_refresh = await redis_client.ttl(key)
+
+    assert initial_ttl > ttl_before_refresh > 0
+    assert ttl_after_refresh > ttl_before_refresh
 
 
 async def test_context_delete(ctx_mgr):
