@@ -231,3 +231,50 @@ async def test_task_create_sets_ttl(task_mgr, redis_client, task_execution_id):
     await task_mgr.create(task_execution_id)
     ttl = await redis_client.ttl(get_task_state_key(task_execution_id))
     assert TaskStateManager.TTL - 5 <= ttl <= TaskStateManager.TTL
+
+
+async def test_task_transition_happy_path(task_mgr):
+    execution_id = "exec-200"
+    await task_mgr.delete(execution_id)
+    try:
+        await task_mgr.create(execution_id)
+        await task_mgr.transition(
+            execution_id, "RECEIVE", "running", agent_id="agent-A"
+        )
+        state = await task_mgr.get(execution_id)
+        assert state["protocol_stage"] == "RECEIVE"
+        assert state["status"] == "running"
+        assert state["current_agent_id"] == "agent-A"
+        assert state["version"] == "1"
+    finally:
+        await task_mgr.delete(execution_id)
+
+
+async def test_task_transition_increments_version(task_mgr):
+    execution_id = "exec-201"
+    await task_mgr.delete(execution_id)
+    try:
+        await task_mgr.create(execution_id)
+        await task_mgr.transition(execution_id, "RECEIVE", "running")
+        await task_mgr.transition(execution_id, "EXECUTE", "running")
+        state = await task_mgr.get(execution_id)
+        assert state["version"] == "2"
+    finally:
+        await task_mgr.delete(execution_id)
+
+
+async def test_task_transition_refreshes_ttl(task_mgr, redis_client):
+    execution_id = "exec-202"
+    await task_mgr.delete(execution_id)
+    try:
+        await task_mgr.create(execution_id)
+        await task_mgr.transition(execution_id, "FINISH", "completed")
+        ttl = await redis_client.ttl(get_task_state_key(execution_id))
+        assert ttl > 0
+    finally:
+        await task_mgr.delete(execution_id)
+
+
+async def test_task_transition_missing_key_raises(task_mgr):
+    with pytest.raises(ValueError):
+        await task_mgr.transition("no-exec-999", "RECEIVE", "running")

@@ -5,7 +5,10 @@ transition() 使用 WATCH/MULTI/EXEC 乐观锁保证原子更新。
 """
 from __future__ import annotations
 
-import redis.asyncio
+import asyncio
+
+import redis.asyncio as redis
+from redis.exceptions import WatchError
 
 from app.state_manager.exceptions import ConcurrencyError
 from app.state_manager.keys import get_task_state_key
@@ -17,7 +20,7 @@ class TaskStateManager:
     TTL = 604800
     MAX_RETRIES = 3
 
-    def __init__(self, redis: redis.asyncio.Redis) -> None:
+    def __init__(self, redis: redis.Redis) -> None:
         self._redis = redis
 
     async def create(
@@ -55,4 +58,39 @@ class TaskStateManager:
         agent_id: str | None = None,
     ) -> None:
         """以乐观锁原子更新执行态（Task 5 实现）。"""
-        raise NotImplementedError
+        key = get_task_state_key(execution_id)
+
+        for attempt in range(self.MAX_RETRIES):
+            async with self._redis.pipeline() as pipe:
+                try:
+                    await pipe.watch(key)
+                    current = await pipe.hgetall(key)
+                    if not current:
+                        await pipe.unwatch()
+                        raise ValueError(
+                            f"task_state for execution_id={execution_id!r} "
+                            "does not exist."
+                        )
+
+                    mapping: dict[str, str] = {
+                        "protocol_stage": new_stage,
+                        "status": new_status,
+                        "version": str(int(current.get("version", "0")) + 1),
+                    }
+                    if agent_id is not None:
+                        mapping["current_agent_id"] = agent_id
+
+                    pipe.multi()
+                    pipe.hset(key, mapping=mapping)
+                    pipe.expire(key, self.TTL)
+                    await pipe.execute()
+                    return
+                except WatchError:
+                    if attempt == self.MAX_RETRIES - 1:
+                        break
+
+            await asyncio.sleep(0.005 * (attempt + 1))
+
+        raise ConcurrencyError(
+            f"task_state transition conflict for execution_id={execution_id!r}"
+        )
