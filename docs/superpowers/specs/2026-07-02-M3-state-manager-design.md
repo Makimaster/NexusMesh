@@ -229,7 +229,7 @@ for attempt in range(MAX_RETRIES):
     EXEC
     若 EXEC 返回非 None → 成功，return
     若 EXEC 返回 None   → 被抢占
-    await asyncio.sleep(0.005 * (attempt + 1))  ← 退避防活锁
+    await asyncio.sleep(0.005 * (2**attempt))  ← 指数退避防活锁
 
 抛 ConcurrencyError
 ```

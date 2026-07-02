@@ -88,7 +88,7 @@ class TaskStateManager:
                 except WatchError:
                     pass
 
-            await asyncio.sleep(0.005 * (attempt + 1))
+            await asyncio.sleep(0.005 * (2**attempt))
 
         raise ConcurrencyError(
             f"task_state transition conflict for execution_id={execution_id!r}"

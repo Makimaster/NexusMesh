@@ -670,7 +670,7 @@ class TaskStateManager:
 
         WATCH/MULTI/EXEC：若 EXEC 前 key 被其他连接修改，事务取消，重试。
         超过 MAX_RETRIES 次后抛 ConcurrencyError。
-        退避策略：每次失败后 sleep(0.005 * (attempt+1)) 防活锁。
+        退避策略：每次失败后 sleep(0.005 * (2**attempt)) 防活锁。
         """
         key = get_task_state_key(execution_id)
 
@@ -705,7 +705,7 @@ class TaskStateManager:
                 return  # 事务成功
 
             # 事务被抢占，退避后重试
-            await asyncio.sleep(0.005 * (attempt + 1))
+            await asyncio.sleep(0.005 * (2**attempt))
 
         raise ConcurrencyError(
             f"Failed to transition execution_id={execution_id!r} "

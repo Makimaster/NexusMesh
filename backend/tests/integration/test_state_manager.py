@@ -327,7 +327,7 @@ async def test_task_transition_conflict_backoff_every_failure(monkeypatch):
     with pytest.raises(ConcurrencyError):
         await task_mgr.transition("exec-conflict", "EXECUTE", "running")
 
-    assert sleep_calls == [0.005, 0.01, 0.015]
+    assert sleep_calls == [0.005, 0.01, 0.02]
 
 
 async def test_concurrent_transition_raises(task_mgr):
