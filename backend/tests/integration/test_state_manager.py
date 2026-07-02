@@ -13,6 +13,7 @@ import redis.asyncio
 from app.state_manager.context import AgentContextManager
 from app.state_manager.keys import get_agent_context_key, get_session_key
 from app.state_manager.session import SessionManager
+from app.state_manager.task_state import TaskStateManager
 
 
 @pytest.fixture
@@ -63,6 +64,20 @@ async def missing_session_id(redis_client):
 @pytest.fixture
 def sess_mgr(redis_client):
     return SessionManager(redis_client)
+
+
+@pytest.fixture
+async def task_execution_id(redis_client):
+    execution_id = f"exec-{uuid4()}"
+
+    yield execution_id
+
+    await redis_client.delete(f"task_state:{execution_id}")
+
+
+@pytest.fixture
+def task_mgr(redis_client):
+    return TaskStateManager(redis_client)
 
 
 async def test_context_set_and_get(ctx_mgr, context_ids):
@@ -180,3 +195,34 @@ async def test_session_delete(sess_mgr, session_id):
     await sess_mgr.create(session_id, "user-3", "exec-3")
     await sess_mgr.delete(session_id)
     assert await sess_mgr.get(session_id) is None
+
+
+async def test_task_create_and_get(task_mgr, task_execution_id):
+    await task_mgr.create(task_execution_id)
+    state = await task_mgr.get(task_execution_id)
+    assert state["status"] == "pending"
+    assert state["protocol_stage"] == "INIT"
+    assert state["version"] == "0"
+
+
+async def test_task_create_custom_stage(task_mgr, task_execution_id):
+    await task_mgr.create(task_execution_id, initial_stage="RECEIVE")
+    state = await task_mgr.get(task_execution_id)
+    assert state["protocol_stage"] == "RECEIVE"
+
+
+async def test_task_get_missing_returns_none(task_mgr, task_execution_id):
+    missing_execution_id = f"missing-{task_execution_id}"
+    assert await task_mgr.get(missing_execution_id) is None
+
+
+async def test_task_delete(task_mgr, task_execution_id):
+    await task_mgr.create(task_execution_id)
+    await task_mgr.delete(task_execution_id)
+    assert await task_mgr.get(task_execution_id) is None
+
+
+async def test_task_create_sets_ttl(task_mgr, redis_client, task_execution_id):
+    await task_mgr.create(task_execution_id)
+    ttl = await redis_client.ttl(f"task_state:{task_execution_id}")
+    assert ttl > 0
