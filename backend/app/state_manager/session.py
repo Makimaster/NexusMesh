@@ -16,6 +16,13 @@ class SessionManager:
     """管理前端 WebSocket 连接的会话状态（Redis HASH）。"""
 
     TTL = 3600
+    _UPDATE_SUBSCRIPTION_SCRIPT = """
+if redis.call('EXISTS', KEYS[1]) == 0 then
+    return 0
+end
+redis.call('HSET', KEYS[1], 'subscribed_execution_id', ARGV[1])
+return 1
+"""
 
     def __init__(self, redis: redis.asyncio.Redis) -> None:
         self._redis = redis
@@ -46,9 +53,11 @@ class SessionManager:
     ) -> None:
         """前端切换看板时，单独更新 subscribed_execution_id。"""
         key = get_session_key(session_id)
-        if not await self._redis.exists(key):
+        updated = await self._redis.eval(
+            self._UPDATE_SUBSCRIPTION_SCRIPT, 1, key, execution_id
+        )
+        if updated == 0:
             raise ValueError("session not found")
-        await self._redis.hset(key, "subscribed_execution_id", execution_id)
 
     async def delete(self, session_id: str) -> None:
         """M4 WebSocket 断线时调用，清理热状态。"""

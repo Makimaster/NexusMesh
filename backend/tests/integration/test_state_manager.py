@@ -148,6 +148,34 @@ async def test_session_update_subscription_missing_raises_value_error(
         await sess_mgr.update_subscription(missing_session_id, "exec-B")
 
 
+async def test_session_update_subscription_is_atomic_under_key_loss(
+    redis_client, session_id
+):
+    class RedisRaceProxy:
+        def __init__(self, inner):
+            self._inner = inner
+
+        async def exists(self, key):
+            exists = await self._inner.exists(key)
+            await self._inner.delete(key)
+            return exists
+
+        async def hset(self, *args, **kwargs):
+            return await self._inner.hset(*args, **kwargs)
+
+        async def eval(self, script, numkeys, *keys_and_args):
+            await self._inner.delete(get_session_key(session_id))
+            return await self._inner.eval(script, numkeys, *keys_and_args)
+
+    sess_mgr = SessionManager(RedisRaceProxy(redis_client))
+    await SessionManager(redis_client).create(session_id, "user-4", "exec-A")
+
+    with pytest.raises(ValueError, match="session not found"):
+        await sess_mgr.update_subscription(session_id, "exec-B")
+
+    assert await redis_client.hgetall(get_session_key(session_id)) == {}
+
+
 async def test_session_delete(sess_mgr, session_id):
     await sess_mgr.create(session_id, "user-3", "exec-3")
     await sess_mgr.delete(session_id)
