@@ -11,7 +11,8 @@ import pytest
 import redis.asyncio
 
 from app.state_manager.context import AgentContextManager
-from app.state_manager.keys import get_agent_context_key
+from app.state_manager.keys import get_agent_context_key, get_session_key
+from app.state_manager.session import SessionManager
 
 
 @pytest.fixture
@@ -39,6 +40,20 @@ async def context_ids(redis_client):
 @pytest.fixture
 def ctx_mgr(redis_client):
     return AgentContextManager(redis_client)
+
+
+@pytest.fixture
+async def session_id(redis_client):
+    session_id_value = f"sess-{uuid4()}"
+
+    yield session_id_value
+
+    await redis_client.delete(get_session_key(session_id_value))
+
+
+@pytest.fixture
+def sess_mgr(redis_client):
+    return SessionManager(redis_client)
 
 
 async def test_context_set_and_get(ctx_mgr, context_ids):
@@ -85,3 +100,29 @@ async def test_context_delete(ctx_mgr, context_ids):
     await ctx_mgr.delete(execution_id, agent_id)
 
     assert await ctx_mgr.get(execution_id, agent_id) is None
+
+
+async def test_session_create_and_get(sess_mgr, session_id):
+    await sess_mgr.create(session_id, "user-1", "exec-1")
+    result = await sess_mgr.get(session_id)
+    assert result["user_id"] == "user-1"
+    assert result["subscribed_execution_id"] == "exec-1"
+    assert "connected_at" in result
+
+
+async def test_session_get_missing_returns_none(sess_mgr):
+    assert await sess_mgr.get("no-such-session") is None
+
+
+async def test_session_update_subscription(sess_mgr, session_id):
+    await sess_mgr.create(session_id, "user-2", "exec-A")
+    await sess_mgr.update_subscription(session_id, "exec-B")
+    result = await sess_mgr.get(session_id)
+    assert result["subscribed_execution_id"] == "exec-B"
+    assert result["user_id"] == "user-2"
+
+
+async def test_session_delete(sess_mgr, session_id):
+    await sess_mgr.create(session_id, "user-3", "exec-3")
+    await sess_mgr.delete(session_id)
+    assert await sess_mgr.get(session_id) is None
