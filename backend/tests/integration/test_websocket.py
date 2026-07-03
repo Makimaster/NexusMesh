@@ -1,6 +1,7 @@
 import threading
 import time
 import uuid
+from queue import Queue
 
 import pytest
 import redis
@@ -23,6 +24,27 @@ def _publish_message(channel: str, payload: str) -> None:
         client.publish(channel, payload)
     finally:
         client.close()
+
+
+def _receive_text_with_timeout(websocket, timeout: float) -> str:
+    result_queue: Queue[str | BaseException] = Queue(maxsize=1)
+
+    def _receive() -> None:
+        try:
+            result_queue.put(websocket.receive_text())
+        except BaseException as exc:
+            result_queue.put(exc)
+
+    receiver = threading.Thread(target=_receive, daemon=True)
+    receiver.start()
+    receiver.join(timeout=timeout)
+    if receiver.is_alive():
+        raise AssertionError(f"websocket did not receive message within {timeout} seconds")
+
+    result = result_queue.get_nowait()
+    if isinstance(result, BaseException):
+        raise result
+    return result
 
 
 @pytest.fixture
@@ -78,7 +100,7 @@ def test_websocket_happy_path_receives_redis_frame(websocket_test_cleanup):
                     daemon=True,
                 )
                 publisher.start()
-                assert websocket.receive_text() == payload
+                assert _receive_text_with_timeout(websocket, timeout=2) == payload
                 publisher.join(timeout=1)
         finally:
             redis_client.close()
