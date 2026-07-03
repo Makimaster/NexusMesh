@@ -163,17 +163,27 @@ class Broadcaster:
         self._pubsub = None
 
     async def start(self, redis: Redis) -> None:
-        """lifespan 启动时调用，开启唯一监听任务。"""
+        """lifespan 启动时调用，开启唯一监听任务。幂等：重复调用无副作用。"""
+        if self._pubsub is not None or self._task is not None:
+            return
         self._pubsub = redis.pubsub()
         await self._pubsub.psubscribe("channel:execution:*:events")
         self._task = asyncio.create_task(self._listen_loop())
 
     async def stop(self) -> None:
-        """lifespan 关闭时调用，优雅下线。"""
-        if self._task:
-            self._task.cancel()
-        if self._pubsub:
-            await self._pubsub.punsubscribe()
+        """lifespan 关闭时调用，优雅下线。cancel task 并等待其结束。"""
+        task = self._task
+        self._task = None
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        pubsub = self._pubsub
+        self._pubsub = None
+        if pubsub is not None:
+            await pubsub.punsubscribe()
 
     async def subscribe(self, channel: str, ws: WebSocket) -> None:
         """将 WebSocket 加入指定 channel 的广播集合。"""
@@ -515,81 +525,137 @@ git commit -m "feat: lifespan 挂载 Broadcaster，注册 WebSocket 路由"
 
 前置：Redis 在 localhost:6379 可访问（docker compose up -d redis）。
 使用 TestClient 作为 context manager 触发 lifespan（broadcaster.start/stop）。
-每个用例结束后调用 broadcaster._clear_for_test() 保证隔离。
+⚠️  不兼容 pytest-xdist 并行执行，详见 _close_shared_redis_after_test fixture。
 """
-import asyncio
 import threading
+import time
+import uuid
+from queue import Queue
 
 import pytest
-import redis as sync_redis
-from starlette.testclient import TestClient
+import redis
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
+from app.common.redis_client import close_redis
+from app.core.security import create_access_token
 from app.main import app
 from app.state_manager.keys import get_channel_events
 from app.websocket.broadcaster import broadcaster
 
-# ─── 辅助：同步发布一条 Redis 消息 ──────────────────────────────────────
-def _publish_sync(channel: str, data: str) -> None:
-    """在独立线程里用同步 Redis 客户端 publish，避免阻塞 asyncio 事件循环。"""
-    r = sync_redis.from_url("redis://localhost:6379/0", decode_responses=True)
-    r.publish(channel, data)
-    r.close()
+REDIS_URL = "redis://localhost:6379/0"
 
 
-# ─── 测试用 JWT（有效用户，developer 角色） ─────────────────────────────
-# 通过 app.core.security.create_access_token 生成，payload type="access", sub=<uuid>
-import uuid
-from app.core.security import create_access_token
+def _publish_message(channel: str, payload: str) -> None:
+    client = redis.Redis.from_url(REDIS_URL, encoding="utf-8", decode_responses=True)
+    try:
+        client.publish(channel, payload)
+    finally:
+        client.close()
 
-VALID_TOKEN = create_access_token({"sub": str(uuid.uuid4()), "type": "access"})
+
+def _receive_text_with_timeout(websocket, timeout: float) -> str:
+    """带超时的 receive_text，防止测试因收不到消息而永久挂死。"""
+    result_queue: Queue[str | BaseException] = Queue(maxsize=1)
+
+    def _receive() -> None:
+        try:
+            result_queue.put(websocket.receive_text())
+        except BaseException as exc:
+            result_queue.put(exc)
+
+    receiver = threading.Thread(target=_receive, daemon=True)
+    receiver.start()
+    receiver.join(timeout=timeout)
+    if receiver.is_alive():
+        raise AssertionError(f"websocket did not receive message within {timeout}s")
+    result = result_queue.get_nowait()
+    if isinstance(result, BaseException):
+        raise result
+    return result
 
 
-# ─── Happy path ──────────────────────────────────────────────────────────
-
-def test_websocket_broadcast_happy_path():
-    """连接 → publish Redis 消息 → WebSocket 收到相同帧。"""
-    execution_id = "test-exec-ws-happy-001"
-    channel = get_channel_events(execution_id)
-    payload = '{"event_type":"agent_spawn","stage":"INIT"}'
-
-    with TestClient(app) as client:
-        with client.websocket_connect(
-            f"/ws/executions/{execution_id}?token={VALID_TOKEN}"
-        ) as ws:
-            # 等待 subscribe() 写入 broadcaster._channels
-            import time
-            time.sleep(0.1)
-            # 在后台线程发布消息（TestClient 在同步环境运行）
-            t = threading.Thread(target=_publish_sync, args=(channel, payload))
-            t.start()
-            t.join()
-            # 读取广播帧
-            received = ws.receive_text()
-            assert received == payload
-
+@pytest.fixture
+def websocket_test_cleanup():
+    created_session_keys: set[str] = set()
+    yield created_session_keys
     broadcaster._clear_for_test()
+    redis_client = redis.Redis.from_url(REDIS_URL, encoding="utf-8", decode_responses=True)
+    try:
+        if created_session_keys:
+            redis_client.delete(*created_session_keys)
+    finally:
+        redis_client.close()
 
 
-# ─── Auth failure ─────────────────────────────────────────────────────────
+def test_websocket_happy_path_receives_redis_frame(websocket_test_cleanup):
+    """连接建立 → publish Redis 消息 → WebSocket 收到相同帧。"""
+    execution_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4())
+    token = create_access_token({"sub": user_id})
+    channel = get_channel_events(execution_id)
+    payload = '{"event":"task.updated","execution_id":"%s"}' % execution_id
 
-def test_websocket_auth_failure_invalid_token():
-    """无效 token → 握手被拒（WebSocketDisconnect 或 1008）。"""
     with TestClient(app) as client:
-        with pytest.raises(Exception):
+        redis_client = redis.Redis.from_url(REDIS_URL, encoding="utf-8", decode_responses=True)
+        try:
+            before_keys = set(redis_client.keys("session:*"))
             with client.websocket_connect(
-                "/ws/executions/any-id?token=totally_invalid_token"
+                f"/ws/executions/{execution_id}?token={token}"
+            ) as websocket:
+                # 轮询等待 Session 写入 Redis，确认连接已注册到 broadcaster
+                deadline = time.time() + 2
+                session_key = None
+                while time.time() < deadline:
+                    new_keys = set(redis_client.keys("session:*")) - before_keys
+                    if new_keys:
+                        session_key = new_keys.pop()
+                        break
+                    time.sleep(0.05)
+                assert session_key is not None
+                websocket_test_cleanup.add(session_key)
+
+                publisher = threading.Thread(
+                    target=_publish_message, args=(channel, payload), daemon=True
+                )
+                publisher.start()
+                assert _receive_text_with_timeout(websocket, timeout=2) == payload
+                publisher.join(timeout=1)
+        finally:
+            redis_client.close()
+
+
+def test_websocket_auth_failure_invalid_token(websocket_test_cleanup):
+    """无效 token → 握手被拒，关闭码 1008。"""
+    execution_id = str(uuid.uuid4())
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(
+                f"/ws/executions/{execution_id}?token=invalid-token"
             ):
                 pass
-    broadcaster._clear_for_test()
+    assert exc_info.value.code == 1008
 
 
-def test_websocket_auth_failure_missing_token():
-    """缺少 token query param → 422 或握手拒绝。"""
+def test_websocket_auth_failure_missing_token(websocket_test_cleanup):
+    """缺少 token query param → 握手被拒，关闭码 1008。"""
+    execution_id = str(uuid.uuid4())
     with TestClient(app) as client:
-        with pytest.raises(Exception):
-            with client.websocket_connect("/ws/executions/any-id"):
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(f"/ws/executions/{execution_id}"):
                 pass
-    broadcaster._clear_for_test()
+    assert exc_info.value.code == 1008
+
+
+@pytest.fixture(autouse=True)
+def _close_shared_redis_after_test():
+    """每个测试后关闭共享 Redis 单例，确保下次 TestClient lifespan 拿到全新连接。
+
+    ⚠️  WARNING: 不兼容 pytest-xdist 并行执行（-n 参数）。
+    """
+    yield
+    import asyncio
+    asyncio.run(close_redis())
 ```
 
 - [ ] **Step 2: 跑测试，确认失败**

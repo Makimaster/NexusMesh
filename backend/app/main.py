@@ -4,14 +4,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
-from app.common.redis_client import close_redis
+from app.common.redis_client import close_redis, get_redis_instance
 from app.config.settings import settings
 from app.core.exceptions import register_exception_handlers
+from app.websocket.broadcaster import broadcaster
+from app.websocket.gateway import router as ws_router
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    redis = await get_redis_instance()
+    await broadcaster.start(redis)
     yield
+    await broadcaster.stop()
     await close_redis()
 
 
@@ -31,6 +36,7 @@ app.add_middleware(
 
 register_exception_handlers(app)
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+app.include_router(ws_router)
 
 
 @app.get("/health", tags=["health"])
