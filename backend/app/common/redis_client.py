@@ -19,6 +19,17 @@ async def get_redis() -> AsyncGenerator[aioredis.Redis]:
     yield _redis
 
 
+async def get_redis_instance() -> aioredis.Redis:
+    global _redis
+    if _redis is None:
+        _redis = aioredis.from_url(
+            settings.REDIS_URL,
+            encoding="utf-8",
+            decode_responses=True,
+        )
+    return _redis
+
+
 async def close_redis() -> None:
     """Close the Redis connection on shutdown."""
     global _redis
