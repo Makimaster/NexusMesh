@@ -14,6 +14,8 @@ class Broadcaster:
         self._task: asyncio.Task | None = None
 
     async def start(self, redis) -> None:
+        if self._pubsub is not None or self._task is not None:
+            return
         self._pubsub = redis.pubsub()
         await self._pubsub.psubscribe(CHANNEL_PATTERN)
         self._task = asyncio.create_task(self._listen_loop())
@@ -33,10 +35,10 @@ class Broadcaster:
         if pubsub is not None:
             await pubsub.punsubscribe()
 
-    def subscribe(self, channel: str, ws: WebSocket) -> None:
+    async def subscribe(self, channel: str, ws: WebSocket) -> None:
         self._channels.setdefault(channel, set()).add(ws)
 
-    def unsubscribe(self, channel: str, ws: WebSocket) -> None:
+    async def unsubscribe(self, channel: str, ws: WebSocket) -> None:
         sockets = self._channels.get(channel)
         if not sockets:
             return
@@ -77,7 +79,8 @@ class Broadcaster:
                         try:
                             await ws.send_text(data)
                         except Exception:
-                            pass
+                            await self.unsubscribe(channel, ws)
+                return
             except asyncio.CancelledError:
                 return
             except (RedisError, ConnectionError):
