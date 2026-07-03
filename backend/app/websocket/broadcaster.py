@@ -83,10 +83,19 @@ class Broadcaster:
             except asyncio.CancelledError:
                 return
             except (RedisError, ConnectionError):
+                # 网络抖动：等待 1 秒后重新订阅。
+                # redis-py 5.x 连接池会在下次 IO 时自动重建底层连接，
+                # 因此在同一 _pubsub 对象上重新 psubscribe 通常可恢复。
+                # 若 Redis 长时间不可达，重试会持续失败并循环等待，
+                # 直到 lifespan stop() 将 _pubsub 置 None 为止。
                 await asyncio.sleep(1)
                 if self._pubsub is None:
                     return
-                await self._pubsub.psubscribe(CHANNEL_PATTERN)
+                try:
+                    await self._pubsub.psubscribe(CHANNEL_PATTERN)
+                except Exception:
+                    # 重订阅本身也失败时静默忽略，下次循环继续重试
+                    pass
 
     def _clear_for_test(self) -> None:
         self._channels.clear()

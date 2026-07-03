@@ -132,6 +132,13 @@ def test_websocket_auth_failure_missing_token(websocket_test_cleanup):
 
 @pytest.fixture(autouse=True)
 def _close_shared_redis_after_test():
+    """每个测试后关闭共享 Redis 单例，确保下次 TestClient lifespan 拿到全新连接。
+
+    ⚠️  WARNING: 不兼容 pytest-xdist 并行执行（-n 参数）。
+    多个 worker 同时写入 _redis 全局变量会产生竞争条件。
+    若未来需要并行测试，应将 Redis 客户端改为 fixture 局部创建，
+    不再依赖进程级共享单例。
+    """
     yield
     import asyncio
 
