@@ -126,7 +126,7 @@ async def test_start_when_already_started_does_not_replace_resources(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_listen_loop_removes_websocket_after_send_failure():
+async def test_listen_loop_ignores_send_failure_without_removing_websocket():
     from app.websocket.broadcaster import Broadcaster
 
     channel = "channel:execution:exec-123:events"
@@ -140,4 +140,4 @@ async def test_listen_loop_removes_websocket_after_send_failure():
     await broadcaster.subscribe(channel, bad_ws)
     await broadcaster._listen_loop()
 
-    assert channel not in broadcaster._channels or bad_ws not in broadcaster._channels[channel]
+    assert broadcaster._channels[channel] == {bad_ws}

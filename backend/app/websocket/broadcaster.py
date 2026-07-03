@@ -79,7 +79,7 @@ class Broadcaster:
                         try:
                             await ws.send_text(data)
                         except Exception:
-                            await self.unsubscribe(channel, ws)
+                            pass
                 return
             except asyncio.CancelledError:
                 return
