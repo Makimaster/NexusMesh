@@ -3,7 +3,6 @@ import asyncio
 from fastapi import WebSocket
 from redis.exceptions import ConnectionError, RedisError
 
-
 CHANNEL_PATTERN = "channel:execution:*:events"
 
 
