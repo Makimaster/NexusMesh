@@ -525,6 +525,24 @@ INIT → RECEIVE → ROUTE → EXECUTE → ROUTE → EXECUTE → ROUTE(叶子,No
 
 > 全部 mock LLM/Redis/PG，毫秒级运行，无 flaky、不消耗真实配额。
 
+### 10.3 集成 Smoke Test（验证拼接契约）
+
+纯 mock 单元测试只验证「编排决策逻辑」，验证不了三个**跨模块拼接契约**，这些若留到 M14 才暴露，排查面积是现在的数倍：
+
+1. **EventEmitter → PG**：`to_payload()` 铺平的 dict 能否写进 `ExecutionEvent.payload` JSONB？`protocol_stage` 是否符合 `String(20)`？
+2. **BaseAgent → M5**：消费真实 `LLMStreamChunk` 流、尾帧 usage 结构是否一致（此处仍 mock M5，但用贴近真实的 chunk 结构）？
+3. **后台协程 session 生命周期**：`AsyncSessionLocal` 在非请求作用域的 `create_task` 协程里能否正常开关？
+
+**方案**：`backend/tests/integration/test_orchestrator_smoke.py`，**真实 Redis（DB 1）+ 真实 PG（测试库）+ mock M5**（省 API 配额、避免 flaky）。跑一个单 Agent topology，断言：
+
+| 断言 | 验证契约 |
+|---|---|
+| `execution_events` 表真的落了对应行数（INIT/RECEIVE/ROUTE/EXECUTE/FINISH） | ① EventEmitter→PG 双写 |
+| `workflow_executions.status` 真的变 `completed` | ③ 后台 session 结算 |
+| Redis `channel_events` 真的收到帧序列 | ① Redis 广播 |
+
+> **定位为 DoD 加分项**：环境（Redis + 测试 PG）就绪则跑；CI 未接入前本地验证。归属 M6 阶段（M6+M3+M1 集成点），不推迟到 M14。
+
 ---
 
 ## 11. 完成标准（DoD）
@@ -539,6 +557,7 @@ INIT → RECEIVE → ROUTE → EXECUTE → ROUTE → EXECUTE → ROUTE(叶子,No
 | ORM 对齐 | `ExecutionEvent` 仅填 `protocol_stage`/`event_type`/`payload`，其余语义进 JSONB |
 | 依赖纯净 | 仅 `event_emitter.py`/`scheduler.py` 依赖 db/models；其余三文件无 DB 感知 |
 | 单测全绿 | `.venv/Scripts/python.exe -m pytest tests/unit/test_orchestrator.py` 全通过 |
+| 集成 smoke（加分项） | `tests/integration/test_orchestrator_smoke.py` 环境就绪则通过，验证 §10.3 三个拼接契约 |
 | Ruff 通过 | `ruff check app/orchestrator tests` 无报错 |
 | 公共 API 导出 | `from app.orchestrator import Coordinator` 可正常导入 |
 
