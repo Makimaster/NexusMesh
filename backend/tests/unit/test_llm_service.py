@@ -93,3 +93,86 @@ async def test_stream_completion_returns_tokens_and_usage() -> None:
     assert chunks[2].usage.completion_tokens == 2
     assert chunks[2].usage.total_tokens == 7
     assert chunks[2].usage.model_cost_usd == 0.01
+
+
+@pytest.mark.asyncio
+async def test_stream_completion_uses_default_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    async def fake_acompletion(**kwargs: object):
+        captured_kwargs.update(kwargs)
+
+        async def iterator():
+            yield SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content="ok", reasoning_content=None)
+                    )
+                ]
+            )
+
+        return iterator()
+
+    pytest.importorskip("litellm")
+    import litellm
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    service = LLMService(
+        AppSettings(
+            SECRET_KEY="s" * 32,
+            JWT_SECRET_KEY="j" * 32,
+            DEFAULT_LLM_MODEL="default-model",
+        )
+    )
+
+    async for _ in service.stream_completion(
+        messages=[{"role": "user", "content": "hi"}]
+    ):
+        pass
+
+    assert captured_kwargs["model"] == "default-model"
+
+
+@pytest.mark.asyncio
+async def test_stream_completion_uses_custom_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    async def fake_acompletion(**kwargs: object):
+        captured_kwargs.update(kwargs)
+
+        async def iterator():
+            yield SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content="ok", reasoning_content=None)
+                    )
+                ]
+            )
+
+        return iterator()
+
+    pytest.importorskip("litellm")
+    import litellm
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    service = LLMService(
+        AppSettings(
+            SECRET_KEY="s" * 32,
+            JWT_SECRET_KEY="j" * 32,
+            DEFAULT_LLM_MODEL="default-model",
+        )
+    )
+
+    async for _ in service.stream_completion(
+        messages=[{"role": "user", "content": "hi"}],
+        model="custom-model",
+    ):
+        pass
+
+    assert captured_kwargs["model"] == "custom-model"
