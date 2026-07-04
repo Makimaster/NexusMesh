@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.config.settings import AppSettings, settings
+from app.services.llm_exceptions import LLMServiceError
 from app.services.llm_service import LLMService
 
 
@@ -176,3 +177,71 @@ async def test_stream_completion_uses_custom_model(
         pass
 
     assert captured_kwargs["model"] == "custom-model"
+
+
+@pytest.mark.asyncio
+async def test_stream_completion_raises_on_auth_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("litellm")
+    import litellm
+    from litellm.exceptions import AuthenticationError
+
+    async def fake_acompletion(**kwargs: object):
+        raise AuthenticationError(
+            message="bad auth",
+            llm_provider="openai",
+            model="test-model",
+        )
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    service = LLMService(
+        AppSettings(
+            SECRET_KEY="s" * 32,
+            JWT_SECRET_KEY="j" * 32,
+            DEFAULT_LLM_MODEL="default-model",
+        )
+    )
+
+    with pytest.raises(LLMServiceError, match="LLM调用异常"):
+        [
+            chunk
+            async for chunk in service.stream_completion(
+                messages=[{"role": "user", "content": "hi"}]
+            )
+        ]
+
+
+@pytest.mark.asyncio
+async def test_stream_completion_raises_on_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("litellm")
+    import litellm
+    from litellm.exceptions import RateLimitError
+
+    async def fake_acompletion(**kwargs: object):
+        raise RateLimitError(
+            message="too many requests",
+            llm_provider="openai",
+            model="test-model",
+        )
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    service = LLMService(
+        AppSettings(
+            SECRET_KEY="s" * 32,
+            JWT_SECRET_KEY="j" * 32,
+            DEFAULT_LLM_MODEL="default-model",
+        )
+    )
+
+    with pytest.raises(LLMServiceError, match="LLM调用异常"):
+        [
+            chunk
+            async for chunk in service.stream_completion(
+                messages=[{"role": "user", "content": "hi"}]
+            )
+        ]

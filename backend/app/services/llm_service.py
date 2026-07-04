@@ -64,7 +64,7 @@ class LLMService:
             ServiceUnavailableError,
         ) as exc:
             log.error("LiteLLM stream completion failed: %s", exc)
-            raise LLMServiceError(str(exc)) from exc
+            raise LLMServiceError("LLM调用异常") from exc
         except Exception as exc:
             log.critical("Unexpected LiteLLM stream completion failure: %s", exc)
             raise LLMServiceError(str(exc)) from exc
