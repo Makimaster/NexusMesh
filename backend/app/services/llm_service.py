@@ -4,6 +4,7 @@ from typing import Any
 
 import litellm
 from fastapi import Depends
+from fastapi.params import Depends as DependsParam
 from litellm.exceptions import (
     AuthenticationError,
     BadRequestError,
@@ -21,7 +22,7 @@ class LLMService:
     """封装 LiteLLM 流式补全调用。"""
 
     def __init__(self, app_settings: AppSettings = Depends(lambda: settings)) -> None:
-        self.settings = app_settings
+        self.settings = settings if isinstance(app_settings, DependsParam) else app_settings
         litellm.telemetry = False
 
     async def stream_completion(

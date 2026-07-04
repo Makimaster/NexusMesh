@@ -2,8 +2,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.config.settings import AppSettings
+from app.config.settings import AppSettings, settings
 from app.services.llm_service import LLMService
+
+
+def test_llm_service_uses_module_settings_outside_fastapi_di() -> None:
+    service = LLMService()
+
+    assert service.settings is settings
+    assert service.settings.DEFAULT_LLM_MODEL == settings.DEFAULT_LLM_MODEL
 
 
 @pytest.mark.asyncio
