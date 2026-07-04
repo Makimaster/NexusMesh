@@ -180,6 +180,48 @@ async def test_stream_completion_uses_custom_model(
 
 
 @pytest.mark.asyncio
+async def test_stream_completion_passes_api_base_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    async def fake_acompletion(**kwargs: object):
+        captured_kwargs.update(kwargs)
+
+        async def iterator():
+            yield SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content="ok", reasoning_content=None)
+                    )
+                ]
+            )
+
+        return iterator()
+
+    pytest.importorskip("litellm")
+    import litellm
+
+    monkeypatch.setattr(litellm, "acompletion", fake_acompletion)
+
+    service = LLMService(
+        AppSettings(
+            SECRET_KEY="s" * 32,
+            JWT_SECRET_KEY="j" * 32,
+            DEFAULT_LLM_MODEL="default-model",
+            LITELLM_API_BASE="https://litellm.example.com",
+        )
+    )
+
+    async for _ in service.stream_completion(
+        messages=[{"role": "user", "content": "hi"}]
+    ):
+        pass
+
+    assert captured_kwargs["api_base"] == "https://litellm.example.com"
+
+
+@pytest.mark.asyncio
 async def test_stream_completion_raises_on_auth_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -33,13 +33,17 @@ class LLMService:
         **kwargs: Any,
     ):
         try:
+            completion_kwargs = dict(kwargs)
+            if self.settings.LITELLM_API_BASE:
+                completion_kwargs["api_base"] = self.settings.LITELLM_API_BASE
+
             stream = await litellm.acompletion(
                 model=model or self.settings.DEFAULT_LLM_MODEL,
                 messages=messages,
                 temperature=temperature,
                 stream=True,
                 stream_options={"include_usage": True},
-                **kwargs,
+                **completion_kwargs,
             )
 
             async for chunk in stream:
