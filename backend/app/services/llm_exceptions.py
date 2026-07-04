@@ -1,0 +1,2 @@
+class LLMServiceError(RuntimeError):
+    pass
