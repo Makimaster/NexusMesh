@@ -10,15 +10,17 @@ from app.orchestrator.coordinator import Coordinator
 from app.services.llm_service import LLMService
 
 _coordinator: Coordinator | None = None
+_coordinator_redis: redis.Redis | None = None
 
 
 async def get_coordinator(
     redis_client: redis.Redis = Depends(get_redis),
 ) -> Coordinator:
     """进程内 Coordinator 单例装配：LLMService + Coordinator。"""
-    global _coordinator
-    if _coordinator is None:
+    global _coordinator, _coordinator_redis
+    if _coordinator is None or _coordinator_redis is not redis_client:
         _coordinator = Coordinator(
             redis_client=redis_client, llm_service=LLMService()
         )
+        _coordinator_redis = redis_client
     return _coordinator
