@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from app.db.session import AsyncSessionLocal
@@ -11,11 +10,9 @@ from app.models.agent import Agent
 from app.models.execution import WorkflowExecution
 from app.models.workflow import Workflow
 from app.orchestrator.base_agent import BaseAgent
+from app.orchestrator.event_emitter import EventEmitter
 from app.orchestrator.exceptions import OrchestratorError
-
-if TYPE_CHECKING:
-    from app.orchestrator.event_emitter import EventEmitter
-    from app.services.llm_service import LLMService
+from app.services.llm_service import LLMService
 
 
 @dataclass

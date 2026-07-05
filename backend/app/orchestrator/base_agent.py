@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from app.orchestrator.event_emitter import EventEmitter
 from app.protocol import ExecutePayload
-
-if TYPE_CHECKING:
-    from app.orchestrator.event_emitter import EventEmitter
-    from app.services.llm_service import LLMService
+from app.services.llm_schemas import UsageStats
+from app.services.llm_service import LLMService
 
 
 class BaseAgent:
@@ -29,9 +28,7 @@ class BaseAgent:
     async def run(self, execution_id: str, task_input: dict[str, Any]) -> ExecutePayload:
         messages = self._build_messages(task_input)
         buffer: list[str] = []
-        prompt_tokens = 0
-        completion_tokens = 0
-        model_cost_usd = 0.0
+        usage = UsageStats()
 
         async for chunk in self._llm.stream_completion(
             messages=messages,
@@ -54,16 +51,14 @@ class BaseAgent:
                 )
 
             if chunk.usage is not None:
-                prompt_tokens = chunk.usage.prompt_tokens
-                completion_tokens = chunk.usage.completion_tokens
-                model_cost_usd = chunk.usage.model_cost_usd
+                usage = chunk.usage
 
         return ExecutePayload(
             agent_message="".join(buffer),
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
+            prompt_tokens=usage.prompt_tokens,
+            completion_tokens=usage.completion_tokens,
             model=self._llm_model,
-            model_cost_usd=model_cost_usd,
+            model_cost_usd=usage.model_cost_usd,
         )
 
     def _build_messages(self, task_input: dict[str, Any]) -> list[dict[str, str]]:
