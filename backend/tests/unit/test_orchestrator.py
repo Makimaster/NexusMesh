@@ -498,3 +498,150 @@ async def test_scheduler_settle_execution_updates_status(monkeypatch):
     assert exec_row.output == {"answer": "done"}
     assert exec_row.error == ""
     session.begin.assert_called_once_with()
+
+
+def _stage_sequence(emitter_mock):
+    return [
+        call.args[1].protocol_stage.value
+        for call in emitter_mock.emit_event.await_args_list
+    ]
+
+
+def _build_coordinator(topology, exec_payload=None, run_exc=None):
+    from app.orchestrator.coordinator import Coordinator
+    from app.orchestrator.scheduler import ExecutionContext
+
+    coord = Coordinator.__new__(Coordinator)
+    coord._emitter = MagicMock()
+    coord._emitter.emit_event = AsyncMock()
+    coord._task_state = MagicMock()
+    coord._task_state.create = AsyncMock()
+    coord._task_state.transition = AsyncMock()
+    coord._router = AgentRouter()
+    coord._scheduler = MagicMock()
+    coord._scheduler.load_execution_context = AsyncMock(
+        return_value=ExecutionContext(
+            workflow_id="wf-1",
+            topology=topology,
+            task_input={"query": "hi"},
+        )
+    )
+    coord._scheduler.settle_execution = AsyncMock()
+
+    fake_agent = MagicMock()
+    if run_exc is not None:
+        fake_agent.run = AsyncMock(side_effect=run_exc)
+    else:
+        fake_agent.run = AsyncMock(
+            return_value=exec_payload
+            or ExecutePayload(
+                agent_message="done",
+                prompt_tokens=1,
+                completion_tokens=1,
+                model="gpt-4o",
+                model_cost_usd=0.0,
+            )
+        )
+    coord._scheduler.load_agent = AsyncMock(return_value=fake_agent)
+    return coord
+
+
+async def test_coordinator_single_agent_flow():
+    topo = {
+        "nodes": [
+            {
+                "id": "solo",
+                "type": "agent",
+                "data": {"agent_id": "550e8400-e29b-41d4-a716-446655440101"},
+            }
+        ],
+        "edges": [],
+    }
+    coord = _build_coordinator(topo)
+
+    await coord._execute_workflow_loop("550e8400-e29b-41d4-a716-446655440110")
+
+    assert _stage_sequence(coord._emitter) == [
+        "INIT",
+        "RECEIVE",
+        "ROUTE",
+        "EXECUTE",
+        "ROUTE",
+        "FINISH",
+    ]
+    final = coord._emitter.emit_event.await_args_list[-1].args[1]
+    assert final.payload.success is True
+    coord._scheduler.settle_execution.assert_awaited_once()
+    assert coord._scheduler.settle_execution.await_args.kwargs["status"] == "completed"
+
+
+async def test_coordinator_double_agent_flow():
+    coord = _build_coordinator(_topology_double())
+
+    await coord._execute_workflow_loop("550e8400-e29b-41d4-a716-446655440111")
+
+    assert _stage_sequence(coord._emitter) == [
+        "INIT",
+        "RECEIVE",
+        "ROUTE",
+        "EXECUTE",
+        "ROUTE",
+        "EXECUTE",
+        "ROUTE",
+        "FINISH",
+    ]
+    assert coord._scheduler.load_agent.await_count == 2
+
+
+async def test_coordinator_llm_error_settles_failed():
+    from app.services.llm_exceptions import LLMServiceError
+
+    topo = {
+        "nodes": [
+            {
+                "id": "solo",
+                "type": "agent",
+                "data": {"agent_id": "550e8400-e29b-41d4-a716-446655440102"},
+            }
+        ],
+        "edges": [],
+    }
+    coord = _build_coordinator(topo, run_exc=LLMServiceError("boom"))
+
+    await coord._execute_workflow_loop("550e8400-e29b-41d4-a716-446655440112")
+
+    final = coord._emitter.emit_event.await_args_list[-1].args[1]
+    assert final.protocol_stage.value == "FINISH"
+    assert final.payload.success is False
+    assert "boom" in final.payload.output["error"]
+    assert coord._scheduler.settle_execution.await_args.kwargs["status"] == "failed"
+
+
+async def test_coordinator_unknown_agent_fails_fast():
+    from app.orchestrator.exceptions import OrchestratorError
+
+    coord = _build_coordinator(_topology_double())
+    coord._scheduler.load_agent = AsyncMock(
+        side_effect=OrchestratorError("Agent 不存在: x")
+    )
+
+    await coord._execute_workflow_loop("550e8400-e29b-41d4-a716-446655440113")
+
+    final = coord._emitter.emit_event.await_args_list[-1].args[1]
+    assert final.protocol_stage.value == "FINISH"
+    assert final.payload.success is False
+    assert coord._scheduler.settle_execution.await_args.kwargs["status"] == "failed"
+
+
+async def test_start_execution_schedules_background_task():
+    import asyncio
+
+    coord = _build_coordinator(_topology_double())
+    coord._execute_workflow_loop = AsyncMock()
+
+    await coord.start_execution("550e8400-e29b-41d4-a716-446655440114")
+    await asyncio.sleep(0)
+
+    coord._execute_workflow_loop.assert_awaited_once_with(
+        "550e8400-e29b-41d4-a716-446655440114"
+    )
