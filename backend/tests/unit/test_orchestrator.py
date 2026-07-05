@@ -1,7 +1,10 @@
 """M6 Orchestrator 单元测试。"""
 
 import json
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.orchestrator.base_agent import BaseAgent
 from app.orchestrator.router import AgentRouter
@@ -353,3 +356,145 @@ async def test_base_agent_emits_reasoning_content():
         reasoning=True,
     )
     emitter.emit_token.assert_any_await("exec-004", "agent-003", "final")
+
+
+async def test_scheduler_load_agent_builds_base_agent(monkeypatch):
+    from app.orchestrator.event_emitter import EventEmitter
+    from app.orchestrator.scheduler import Scheduler
+    from app.services.llm_service import LLMService
+
+    agent_id = "550e8400-e29b-41d4-a716-446655440010"
+    agent_row = MagicMock(llm_model="gpt-4o-mini", system_prompt="You are scheduler")
+    session = MagicMock()
+    session.get = AsyncMock(return_value=agent_row)
+
+    @asynccontextmanager
+    async def fake_session_local():
+        yield session
+
+    monkeypatch.setattr("app.orchestrator.scheduler.AsyncSessionLocal", fake_session_local)
+
+    llm = MagicMock(spec=LLMService)
+    emitter = MagicMock(spec=EventEmitter)
+    scheduler = Scheduler(llm, emitter)
+
+    agent = await scheduler.load_agent(agent_id)
+
+    assert isinstance(agent, BaseAgent)
+    assert agent._agent_id == agent_id
+    assert agent._llm_model == "gpt-4o-mini"
+    assert agent._system_prompt == "You are scheduler"
+    assert agent._llm is llm
+    assert agent._emitter is emitter
+
+
+async def test_scheduler_load_agent_missing_fails_fast(monkeypatch):
+    from app.orchestrator.scheduler import Scheduler
+    from app.orchestrator.exceptions import OrchestratorError
+
+    agent_id = "550e8400-e29b-41d4-a716-446655440011"
+    session = MagicMock()
+    session.get = AsyncMock(return_value=None)
+
+    @asynccontextmanager
+    async def fake_session_local():
+        yield session
+
+    monkeypatch.setattr("app.orchestrator.scheduler.AsyncSessionLocal", fake_session_local)
+
+    scheduler = Scheduler(MagicMock(), MagicMock())
+
+    with pytest.raises(OrchestratorError, match=f"Agent 不存在: {agent_id}"):
+        await scheduler.load_agent(agent_id)
+
+
+async def test_scheduler_load_agent_invalid_uuid_fails_fast():
+    from app.orchestrator.scheduler import Scheduler
+    from app.orchestrator.exceptions import OrchestratorError
+
+    scheduler = Scheduler(MagicMock(), MagicMock())
+
+    with pytest.raises(OrchestratorError, match="agent_id 非法 UUID: not-a-uuid"):
+        await scheduler.load_agent("not-a-uuid")
+
+
+async def test_scheduler_load_execution_context(monkeypatch):
+    from app.orchestrator.scheduler import ExecutionContext, Scheduler
+
+    execution_id = "550e8400-e29b-41d4-a716-446655440020"
+    workflow_id = "550e8400-e29b-41d4-a716-446655440021"
+    exec_row = MagicMock(workflow_id=workflow_id, input={"query": "hello"})
+    wf_row = MagicMock(topology={"nodes": [{"id": "n1"}], "edges": []})
+    session = MagicMock()
+    session.get = AsyncMock(side_effect=[exec_row, wf_row])
+
+    @asynccontextmanager
+    async def fake_session_local():
+        yield session
+
+    monkeypatch.setattr("app.orchestrator.scheduler.AsyncSessionLocal", fake_session_local)
+
+    scheduler = Scheduler(MagicMock(), MagicMock())
+
+    context = await scheduler.load_execution_context(execution_id)
+
+    assert context == ExecutionContext(
+        workflow_id=workflow_id,
+        topology={"nodes": [{"id": "n1"}], "edges": []},
+        task_input={"query": "hello"},
+    )
+
+
+async def test_scheduler_load_execution_context_missing_execution(monkeypatch):
+    from app.orchestrator.scheduler import Scheduler
+    from app.orchestrator.exceptions import OrchestratorError
+
+    execution_id = "550e8400-e29b-41d4-a716-446655440022"
+    session = MagicMock()
+    session.get = AsyncMock(return_value=None)
+
+    @asynccontextmanager
+    async def fake_session_local():
+        yield session
+
+    monkeypatch.setattr("app.orchestrator.scheduler.AsyncSessionLocal", fake_session_local)
+
+    scheduler = Scheduler(MagicMock(), MagicMock())
+
+    with pytest.raises(OrchestratorError, match=f"执行实例不存在: {execution_id}"):
+        await scheduler.load_execution_context(execution_id)
+
+
+async def test_scheduler_settle_execution_updates_status(monkeypatch):
+    from app.orchestrator.scheduler import Scheduler
+
+    execution_id = "550e8400-e29b-41d4-a716-446655440023"
+    exec_row = MagicMock(status="running", output=None, error=None)
+    session = MagicMock()
+    session.get = AsyncMock(return_value=exec_row)
+
+    @asynccontextmanager
+    async def fake_begin():
+        yield session
+
+    session.begin.return_value = fake_begin()
+
+    @asynccontextmanager
+    async def fake_session_local():
+        yield session
+
+    monkeypatch.setattr("app.orchestrator.scheduler.AsyncSessionLocal", fake_session_local)
+
+    scheduler = Scheduler(MagicMock(), MagicMock())
+
+    await scheduler.settle_execution(
+        execution_id,
+        "succeeded",
+        output={"answer": "done"},
+        error="",
+    )
+
+    assert exec_row.status == "succeeded"
+    assert exec_row.output == {"answer": "done"}
+    assert exec_row.error == ""
+    session.begin.assert_called_once_with()
