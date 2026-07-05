@@ -45,3 +45,18 @@ def test_workflow_update_request_all_optional():
 def test_trigger_request_defaults_task_input():
     req = TriggerRequest()
     assert req.task_input == {}
+
+
+async def test_get_coordinator_returns_singleton():
+    import app.api.dependencies.orchestrator as dep
+    from app.orchestrator.coordinator import Coordinator
+
+    dep._coordinator = None  # 重置模块级单例，隔离测试
+    fake_redis = object()
+
+    first = await dep.get_coordinator(redis_client=fake_redis)
+    second = await dep.get_coordinator(redis_client=fake_redis)
+
+    assert isinstance(first, Coordinator)
+    assert first is second  # 同一进程复用单例
+    dep._coordinator = None  # 清理，避免污染其他测试
