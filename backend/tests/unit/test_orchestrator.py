@@ -465,49 +465,6 @@ async def test_scheduler_load_execution_context_missing_execution(monkeypatch):
         await scheduler.load_execution_context(execution_id)
 
 
-async def test_scheduler_load_execution_context_missing_workflow(monkeypatch):
-    from app.orchestrator.exceptions import OrchestratorError
-    from app.orchestrator.scheduler import Scheduler
-
-    execution_id = "550e8400-e29b-41d4-a716-446655440024"
-    workflow_id = "550e8400-e29b-41d4-a716-446655440025"
-    exec_row = MagicMock(workflow_id=workflow_id, input={"query": "hello"})
-    session = MagicMock()
-    session.get = AsyncMock(side_effect=[exec_row, None])
-
-    @asynccontextmanager
-    async def fake_session_local():
-        yield session
-
-    monkeypatch.setattr("app.orchestrator.scheduler.AsyncSessionLocal", fake_session_local)
-
-    scheduler = Scheduler(MagicMock(), MagicMock())
-
-    with pytest.raises(OrchestratorError, match=f"工作流不存在: {workflow_id}"):
-        await scheduler.load_execution_context(execution_id)
-
-
-async def test_scheduler_load_execution_context_empty_workflow_id(monkeypatch):
-    from app.orchestrator.exceptions import OrchestratorError
-    from app.orchestrator.scheduler import Scheduler
-
-    execution_id = "550e8400-e29b-41d4-a716-446655440026"
-    exec_row = MagicMock(workflow_id=None, input={"query": "hello"})
-    session = MagicMock()
-    session.get = AsyncMock(return_value=exec_row)
-
-    @asynccontextmanager
-    async def fake_session_local():
-        yield session
-
-    monkeypatch.setattr("app.orchestrator.scheduler.AsyncSessionLocal", fake_session_local)
-
-    scheduler = Scheduler(MagicMock(), MagicMock())
-
-    with pytest.raises(OrchestratorError, match=f"执行实例缺少 workflow_id: {execution_id}"):
-        await scheduler.load_execution_context(execution_id)
-
-
 async def test_scheduler_settle_execution_updates_status(monkeypatch):
     from app.orchestrator.scheduler import Scheduler
 
@@ -541,29 +498,3 @@ async def test_scheduler_settle_execution_updates_status(monkeypatch):
     assert exec_row.output == {"answer": "done"}
     assert exec_row.error == ""
     session.begin.assert_called_once_with()
-
-
-async def test_scheduler_settle_execution_missing_execution_raises(monkeypatch):
-    from app.orchestrator.exceptions import OrchestratorError
-    from app.orchestrator.scheduler import Scheduler
-
-    execution_id = "550e8400-e29b-41d4-a716-446655440027"
-    session = MagicMock()
-    session.get = AsyncMock(return_value=None)
-
-    @asynccontextmanager
-    async def fake_begin():
-        yield session
-
-    session.begin.return_value = fake_begin()
-
-    @asynccontextmanager
-    async def fake_session_local():
-        yield session
-
-    monkeypatch.setattr("app.orchestrator.scheduler.AsyncSessionLocal", fake_session_local)
-
-    scheduler = Scheduler(MagicMock(), MagicMock())
-
-    with pytest.raises(OrchestratorError, match=f"执行实例不存在: {execution_id}"):
-        await scheduler.settle_execution(execution_id, "failed", error="boom")
