@@ -34,13 +34,16 @@ class Scheduler:
             if exec_row is None:
                 raise OrchestratorError(f"执行实例不存在: {execution_id}")
 
-            wf_row = None
-            if exec_row.workflow_id:
-                wf_row = await session.get(Workflow, exec_row.workflow_id)
+            if exec_row.workflow_id is None:
+                raise OrchestratorError(f"执行实例缺少 workflow_id: {execution_id}")
+
+            wf_row = await session.get(Workflow, exec_row.workflow_id)
+            if wf_row is None:
+                raise OrchestratorError(f"工作流不存在: {exec_row.workflow_id}")
 
             return ExecutionContext(
                 workflow_id=str(exec_row.workflow_id),
-                topology=(wf_row.topology if wf_row else None) or {},
+                topology=wf_row.topology or {},
                 task_input=exec_row.input or {},
             )
 
@@ -71,7 +74,7 @@ class Scheduler:
             async with session.begin():
                 row = await session.get(WorkflowExecution, exec_uuid)
                 if row is None:
-                    return
+                    raise OrchestratorError(f"执行实例不存在: {execution_id}")
                 row.status = status
                 row.output = output
                 row.error = error
