@@ -2,7 +2,7 @@
 
 from app.core.exceptions import NexusMeshException, ValidationError
 from app.schemas.agent import AgentRequest, AgentUpdateRequest
-from app.schemas.workflow import WorkflowRequest
+from app.schemas.workflow import TriggerRequest, WorkflowRequest, WorkflowUpdateRequest
 
 
 def test_validation_error_is_422_and_subclass():
@@ -34,3 +34,14 @@ def test_workflow_request_topology_required():
     req = WorkflowRequest(name="wf", topology={"nodes": [], "edges": []})
     assert req.topology == {"nodes": [], "edges": []}
     assert req.description is None
+
+
+def test_workflow_update_request_all_optional():
+    req = WorkflowUpdateRequest(name="renamed")
+    dumped = req.model_dump(exclude_unset=True)
+    assert dumped == {"name": "renamed"}
+
+
+def test_trigger_request_defaults_task_input():
+    req = TriggerRequest()
+    assert req.task_input == {}
