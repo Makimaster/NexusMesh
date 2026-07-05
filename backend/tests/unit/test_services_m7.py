@@ -124,6 +124,8 @@ class _FakeSession:
         self.added: list = []
         self.flushed = 0
         self.committed = 0
+        self.execute_rows: list = []
+        self.last_statement = None
 
     async def get(self, model, pk):
         return self._store.get(pk)
@@ -142,6 +144,25 @@ class _FakeSession:
 
     async def commit(self) -> None:
         self.committed += 1
+
+    async def execute(self, statement):
+        self.last_statement = statement
+
+        class _FakeScalarResult:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def all(self):
+                return self._rows
+
+        class _FakeExecuteResult:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def scalars(self):
+                return _FakeScalarResult(self._rows)
+
+        return _FakeExecuteResult(self.execute_rows)
 
 
 async def test_create_agent_sets_active_and_created_by():
@@ -206,7 +227,56 @@ async def test_delete_agent_idempotent_when_missing():
     await service.delete_agent(uuid.uuid4())
 
 
-async def test_update_agent_pops_dirty_fields():
+async def test_list_agents_returns_rows_and_builds_active_desc_query():
+    first = Agent(
+        id=uuid.uuid4(),
+        name="first",
+        agent_type="a",
+        llm_provider="p",
+        llm_model="m",
+        is_active=True,
+    )
+    second = Agent(
+        id=uuid.uuid4(),
+        name="second",
+        agent_type="a",
+        llm_provider="p",
+        llm_model="m",
+        is_active=True,
+    )
+    session = _FakeSession()
+    session.execute_rows = [first, second]
+    service = AgentService(session)
+
+    rows = await service.list_agents(limit=5, offset=2)
+
+    assert rows == [first, second]
+    stmt_text = str(session.last_statement)
+    assert "WHERE agents.is_active IS true" in stmt_text
+    assert "ORDER BY agents.created_at DESC" in stmt_text
+    assert "LIMIT :param_1" in stmt_text
+    assert "OFFSET :param_2" in stmt_text
+
+
+async def test_delete_agent_idempotent_when_soft_deleted():
+    aid = uuid.uuid4()
+    agent = Agent(
+        id=aid,
+        name="x",
+        agent_type="a",
+        llm_provider="p",
+        llm_model="m",
+        is_active=False,
+    )
+    session = _FakeSession({aid: agent})
+    service = AgentService(session)
+
+    await service.delete_agent(aid)
+
+    assert session.flushed == 0
+
+
+async def test_update_agent_pops_dirty_fields(monkeypatch):
     aid = uuid.uuid4()
     agent = Agent(
         id=aid,
@@ -218,8 +288,15 @@ async def test_update_agent_pops_dirty_fields():
     )
     service = AgentService(_FakeSession({aid: agent}))
     req = AgentUpdateRequest(name="renamed")
+    dirty_id = uuid.uuid4()
+
+    def fake_model_dump(self, *args, **kwargs):
+        return {"name": "renamed", "id": dirty_id, "is_active": False}
+
+    monkeypatch.setattr(AgentUpdateRequest, "model_dump", fake_model_dump)
 
     updated = await service.update_agent(aid, req)
 
     assert updated.name == "renamed"
     assert updated.is_active is True
+    assert updated.id == aid
