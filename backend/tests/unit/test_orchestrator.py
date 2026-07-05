@@ -13,8 +13,8 @@ from app.protocol import (
     ProtocolStage,
     to_payload,
 )
-from app.state_manager.keys import get_channel_events
 from app.services.llm_schemas import LLMStreamChunk, UsageStats
+from app.state_manager.keys import get_channel_events
 
 
 def _topology_double():
@@ -287,6 +287,10 @@ async def test_base_agent_emits_token_stream():
     assert emitter.emit_token.await_count == 2
     emitter.emit_token.assert_any_await("exec-002", "agent-001", "A")
     emitter.emit_token.assert_any_await("exec-002", "agent-001", "B")
+    llm.stream_completion.assert_called_once_with(
+        messages=[{"role": "user", "content": "123"}],
+        model="gpt-test",
+    )
 
 
 async def test_base_agent_no_usage_tail_fallback():
@@ -312,6 +316,10 @@ async def test_base_agent_no_usage_tail_fallback():
         completion_tokens=0,
         model="gpt-test",
         model_cost_usd=0.0,
+    )
+    llm.stream_completion.assert_called_once_with(
+        messages=[{"role": "user", "content": ""}],
+        model="gpt-test",
     )
 
 
