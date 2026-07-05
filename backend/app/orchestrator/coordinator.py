@@ -8,7 +8,6 @@ import redis.asyncio as redis
 
 from app.common.logger import log
 from app.orchestrator.event_emitter import EventEmitter
-from app.orchestrator.exceptions import OrchestratorError
 from app.orchestrator.router import AgentRouter
 from app.orchestrator.scheduler import Scheduler
 from app.protocol import (
@@ -21,7 +20,6 @@ from app.protocol import (
     ReceivePayload,
     RoutePayload,
 )
-from app.services.llm_exceptions import LLMServiceError
 from app.services.llm_service import LLMService
 from app.state_manager.task_state import TaskStateManager
 
@@ -111,24 +109,38 @@ class Coordinator:
                 status="completed",
                 output=output,
             )
-        except (LLMServiceError, OrchestratorError, Exception) as exc:
+        except Exception as exc:
             error_msg = str(exc)
             log.error(
                 "[M6 Coordinator] execution_id=%s 失败结算: %s",
                 execution_id,
                 error_msg,
             )
-            await self._emit(
-                execution_id,
-                ProtocolStage.FINISH,
-                EventType.AGENT_FINISH,
-                FinishPayload(success=False, output={"error": error_msg}),
-            )
-            await self._scheduler.settle_execution(
-                execution_id,
-                status="failed",
-                error=error_msg,
-            )
+            try:
+                await self._emit(
+                    execution_id,
+                    ProtocolStage.FINISH,
+                    EventType.AGENT_FINISH,
+                    FinishPayload(success=False, output={"error": error_msg}),
+                )
+            except Exception as emit_exc:
+                log.error(
+                    "[M6 Coordinator] execution_id=%s 失败事件发送失败: %s",
+                    execution_id,
+                    emit_exc,
+                )
+            try:
+                await self._scheduler.settle_execution(
+                    execution_id,
+                    status="failed",
+                    error=error_msg,
+                )
+            except Exception as settle_exc:
+                log.error(
+                    "[M6 Coordinator] execution_id=%s failed 结算失败: %s",
+                    execution_id,
+                    settle_exc,
+                )
 
     async def _emit(
         self,

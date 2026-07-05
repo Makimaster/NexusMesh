@@ -608,6 +608,12 @@ async def test_coordinator_llm_error_settles_failed():
     }
     coord = _build_coordinator(topo, run_exc=LLMServiceError("boom"))
 
+    async def emit_event_then_fail(execution_id, event):
+        if event.protocol_stage.value == "FINISH":
+            raise RuntimeError("emit failed")
+
+    coord._emitter.emit_event = AsyncMock(side_effect=emit_event_then_fail)
+
     await coord._execute_workflow_loop("550e8400-e29b-41d4-a716-446655440112")
 
     final = coord._emitter.emit_event.await_args_list[-1].args[1]
@@ -624,6 +630,7 @@ async def test_coordinator_unknown_agent_fails_fast():
     coord._scheduler.load_agent = AsyncMock(
         side_effect=OrchestratorError("Agent 不存在: x")
     )
+    coord._scheduler.settle_execution = AsyncMock(side_effect=RuntimeError("db down"))
 
     await coord._execute_workflow_loop("550e8400-e29b-41d4-a716-446655440113")
 
