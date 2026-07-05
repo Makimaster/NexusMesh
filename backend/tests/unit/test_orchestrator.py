@@ -1,16 +1,20 @@
 """M6 Orchestrator 单元测试。"""
 
 import json
+from unittest.mock import AsyncMock, MagicMock
 
+from app.orchestrator.base_agent import BaseAgent
 from app.orchestrator.router import AgentRouter
 from app.protocol import (
     EventType,
+    ExecutePayload,
     InitPayload,
     ProtocolEvent,
     ProtocolStage,
     to_payload,
 )
 from app.state_manager.keys import get_channel_events
+from app.services.llm_schemas import LLMStreamChunk, UsageStats
 
 
 def _topology_double():
@@ -207,3 +211,137 @@ async def test_emit_event_persist_failsafe(monkeypatch):
     ]
     assert len(critical_calls) == 1
     assert "db down" in critical_calls[0]
+
+
+def _fake_stream(chunks):
+    async def _generator():
+        for chunk in chunks:
+            yield chunk
+
+    return _generator()
+
+
+async def test_base_agent_accumulates_tokens_and_usage():
+    llm = MagicMock()
+    llm.stream_completion = MagicMock(
+        return_value=_fake_stream(
+            [
+                LLMStreamChunk(token="Hello"),
+                LLMStreamChunk(token=" world"),
+                LLMStreamChunk(
+                    usage=UsageStats(
+                        prompt_tokens=11,
+                        completion_tokens=22,
+                        total_tokens=33,
+                        model_cost_usd=0.44,
+                    )
+                ),
+            ]
+        )
+    )
+    emitter = MagicMock()
+    emitter.emit_token = AsyncMock()
+    agent = BaseAgent(
+        agent_id="agent-001",
+        llm_model="gpt-test",
+        system_prompt="You are helpful.",
+        llm_service=llm,
+        emitter=emitter,
+    )
+
+    payload = await agent.run("exec-001", {"query": "Say hi"})
+
+    assert payload == ExecutePayload(
+        agent_message="Hello world",
+        prompt_tokens=11,
+        completion_tokens=22,
+        model="gpt-test",
+        model_cost_usd=0.44,
+    )
+    llm.stream_completion.assert_called_once_with(
+        messages=[
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Say hi"},
+        ],
+        model="gpt-test",
+    )
+
+
+async def test_base_agent_emits_token_stream():
+    llm = MagicMock()
+    llm.stream_completion = MagicMock(
+        return_value=_fake_stream([LLMStreamChunk(token="A"), LLMStreamChunk(token="B")])
+    )
+    emitter = MagicMock()
+    emitter.emit_token = AsyncMock()
+    agent = BaseAgent(
+        agent_id="agent-001",
+        llm_model="gpt-test",
+        system_prompt=None,
+        llm_service=llm,
+        emitter=emitter,
+    )
+
+    await agent.run("exec-002", {"query": 123})
+
+    assert emitter.emit_token.await_count == 2
+    emitter.emit_token.assert_any_await("exec-002", "agent-001", "A")
+    emitter.emit_token.assert_any_await("exec-002", "agent-001", "B")
+
+
+async def test_base_agent_no_usage_tail_fallback():
+    llm = MagicMock()
+    llm.stream_completion = MagicMock(
+        return_value=_fake_stream([LLMStreamChunk(token="Only text")])
+    )
+    emitter = MagicMock()
+    emitter.emit_token = AsyncMock()
+    agent = BaseAgent(
+        agent_id="agent-002",
+        llm_model="gpt-test",
+        system_prompt=None,
+        llm_service=llm,
+        emitter=emitter,
+    )
+
+    payload = await agent.run("exec-003", {})
+
+    assert payload == ExecutePayload(
+        agent_message="Only text",
+        prompt_tokens=0,
+        completion_tokens=0,
+        model="gpt-test",
+        model_cost_usd=0.0,
+    )
+
+
+async def test_base_agent_emits_reasoning_content():
+    llm = MagicMock()
+    llm.stream_completion = MagicMock(
+        return_value=_fake_stream(
+            [
+                LLMStreamChunk(reasoning_content="thinking"),
+                LLMStreamChunk(token="final"),
+            ]
+        )
+    )
+    emitter = MagicMock()
+    emitter.emit_token = AsyncMock()
+    agent = BaseAgent(
+        agent_id="agent-003",
+        llm_model="gpt-test",
+        system_prompt="",
+        llm_service=llm,
+        emitter=emitter,
+    )
+
+    payload = await agent.run("exec-004", {"query": "Q"})
+
+    assert payload.agent_message == "final"
+    emitter.emit_token.assert_any_await(
+        "exec-004",
+        "agent-003",
+        "thinking",
+        reasoning=True,
+    )
+    emitter.emit_token.assert_any_await("exec-004", "agent-003", "final")
