@@ -2,10 +2,14 @@
 
 import json
 
-import pytest
-
-from app.protocol import EventType, InitPayload, ProtocolEvent, ProtocolStage, to_payload
 from app.orchestrator.router import AgentRouter
+from app.protocol import (
+    EventType,
+    InitPayload,
+    ProtocolEvent,
+    ProtocolStage,
+    to_payload,
+)
 from app.state_manager.keys import get_channel_events
 
 
