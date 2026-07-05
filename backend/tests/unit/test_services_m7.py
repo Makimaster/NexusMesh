@@ -1,8 +1,14 @@
 """M7 业务服务层单元测试（纯逻辑，fake session / mock coordinator）。"""
 
-from app.core.exceptions import NexusMeshException, ValidationError
+import uuid
+
+import pytest
+
+from app.core.exceptions import NexusMeshException, NotFoundError, ValidationError
+from app.models.agent import Agent
 from app.schemas.agent import AgentRequest, AgentUpdateRequest
 from app.schemas.workflow import TriggerRequest, WorkflowRequest, WorkflowUpdateRequest
+from app.services.agent_service import AgentService
 
 
 def test_validation_error_is_422_and_subclass():
@@ -108,3 +114,112 @@ async def test_get_coordinator_rebuilds_for_new_redis_and_wires_dependencies(
     finally:
         dep._coordinator = None
         dep._coordinator_redis = None
+
+
+class _FakeSession:
+    """最小 fake AsyncSession：支持 get / add / flush / refresh。"""
+
+    def __init__(self, store: dict | None = None) -> None:
+        self._store = store or {}
+        self.added: list = []
+        self.flushed = 0
+        self.committed = 0
+
+    async def get(self, model, pk):
+        return self._store.get(pk)
+
+    def add(self, obj) -> None:
+        self.added.append(obj)
+        if getattr(obj, "id", None) is None:
+            obj.id = uuid.uuid4()
+        self._store[obj.id] = obj
+
+    async def flush(self) -> None:
+        self.flushed += 1
+
+    async def refresh(self, obj) -> None:
+        pass
+
+    async def commit(self) -> None:
+        self.committed += 1
+
+
+async def test_create_agent_sets_active_and_created_by():
+    session = _FakeSession()
+    service = AgentService(session)
+    creator = uuid.uuid4()
+    req = AgentRequest(
+        name="worker",
+        agent_type="assistant",
+        llm_provider="openai",
+        llm_model="gpt-4o",
+    )
+
+    agent = await service.create_agent(req, created_by=creator)
+
+    assert agent.is_active is True
+    assert agent.created_by == creator
+    assert session.flushed == 1
+    assert session.committed == 0
+
+
+async def test_get_agent_detail_missing_raises_404():
+    service = AgentService(_FakeSession())
+    with pytest.raises(NotFoundError):
+        await service.get_agent_detail(uuid.uuid4())
+
+
+async def test_get_agent_detail_soft_deleted_raises_404():
+    aid = uuid.uuid4()
+    agent = Agent(
+        id=aid,
+        name="x",
+        agent_type="a",
+        llm_provider="p",
+        llm_model="m",
+        is_active=False,
+    )
+    service = AgentService(_FakeSession({aid: agent}))
+    with pytest.raises(NotFoundError):
+        await service.get_agent_detail(aid)
+
+
+async def test_delete_agent_soft_deletes():
+    aid = uuid.uuid4()
+    agent = Agent(
+        id=aid,
+        name="x",
+        agent_type="a",
+        llm_provider="p",
+        llm_model="m",
+        is_active=True,
+    )
+    service = AgentService(_FakeSession({aid: agent}))
+
+    await service.delete_agent(aid)
+
+    assert agent.is_active is False
+
+
+async def test_delete_agent_idempotent_when_missing():
+    service = AgentService(_FakeSession())
+    await service.delete_agent(uuid.uuid4())
+
+
+async def test_update_agent_pops_dirty_fields():
+    aid = uuid.uuid4()
+    agent = Agent(
+        id=aid,
+        name="x",
+        agent_type="a",
+        llm_provider="p",
+        llm_model="m",
+        is_active=True,
+    )
+    service = AgentService(_FakeSession({aid: agent}))
+    req = AgentUpdateRequest(name="renamed")
+
+    updated = await service.update_agent(aid, req)
+
+    assert updated.name == "renamed"
+    assert updated.is_active is True
