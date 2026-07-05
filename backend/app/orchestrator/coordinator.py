@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 import redis.asyncio as redis
 
@@ -20,8 +21,10 @@ from app.protocol import (
     ReceivePayload,
     RoutePayload,
 )
-from app.services.llm_service import LLMService
 from app.state_manager.task_state import TaskStateManager
+
+if TYPE_CHECKING:
+    from app.services.llm_service import LLMService
 
 
 class Coordinator:
