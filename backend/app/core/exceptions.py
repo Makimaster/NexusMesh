@@ -33,6 +33,11 @@ class ConflictError(NexusMeshException):
     detail = "Resource already exists"
 
 
+class ValidationError(NexusMeshException):
+    status_code = 422
+    detail = "Validation failed"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(NexusMeshException)
     async def nexusmesh_exception_handler(
