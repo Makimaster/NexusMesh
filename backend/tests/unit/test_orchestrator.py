@@ -76,12 +76,28 @@ class _DummySession:
     def __init__(self) -> None:
         self.added = []
         self.commits = 0
+        self.begin_calls = 0
+        self.begin_entries = 0
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
         return False
+
+    def begin(self):
+        session = self
+
+        class _BeginContext:
+            async def __aenter__(self_inner):
+                session.begin_entries += 1
+                return session
+
+            async def __aexit__(self_inner, exc_type, exc, tb):
+                return False
+
+        self.begin_calls += 1
+        return _BeginContext()
 
     def add(self, obj) -> None:
         self.added.append(obj)
@@ -98,7 +114,6 @@ def _make_init_event() -> ProtocolEvent:
     )
 
 
-@pytest.mark.asyncio
 async def test_emit_event_publishes_and_persists(monkeypatch):
     from app.orchestrator.event_emitter import EventEmitter
 
@@ -126,10 +141,11 @@ async def test_emit_event_publishes_and_persists(monkeypatch):
     assert saved.protocol_stage == event.protocol_stage.value
     assert saved.event_type == event.event_type.value
     assert saved.payload == payload
-    assert session.commits == 1
+    assert session.begin_calls == 1
+    assert session.begin_entries == 1
+    assert session.commits == 0
 
 
-@pytest.mark.asyncio
 async def test_emit_token_publishes_only_no_persist(monkeypatch):
     from app.orchestrator.event_emitter import EventEmitter
 
@@ -162,7 +178,6 @@ async def test_emit_token_publishes_only_no_persist(monkeypatch):
     ]
 
 
-@pytest.mark.asyncio
 async def test_emit_event_persist_failsafe(monkeypatch):
     from app.orchestrator.event_emitter import EventEmitter
 

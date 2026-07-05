@@ -48,12 +48,12 @@ class EventEmitter:
         data: dict,
     ) -> None:
         async with AsyncSessionLocal() as session:
-            session.add(
-                ExecutionEvent(
-                    execution_id=uuid.UUID(execution_id),
-                    protocol_stage=event.protocol_stage.value,
-                    event_type=event.event_type.value,
-                    payload=data,
+            async with session.begin():
+                session.add(
+                    ExecutionEvent(
+                        execution_id=uuid.UUID(execution_id),
+                        protocol_stage=event.protocol_stage.value,
+                        event_type=event.event_type.value,
+                        payload=data,
+                    )
                 )
-            )
-            await session.commit()
