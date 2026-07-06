@@ -86,6 +86,7 @@ export interface TimelineEventResponse {
   execution_id: string | null;
   protocol_stage: string;
   event_type: string;
+  payload: Record<string, unknown>;
   created_at: string;
 }
 
