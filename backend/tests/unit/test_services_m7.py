@@ -300,3 +300,102 @@ async def test_update_agent_pops_dirty_fields(monkeypatch):
     assert updated.name == "renamed"
     assert updated.is_active is True
     assert updated.id == aid
+
+
+from app.services.workflow_service import WorkflowService
+
+
+class _AgentQuerySession:
+    """fake session：execute(select(Agent.id)...) 返回预置的存活 id 集合。"""
+
+    def __init__(self, active_ids: set[uuid.UUID]) -> None:
+        self._active_ids = active_ids
+
+    async def execute(self, stmt):
+        class _Result:
+            def __init__(self, ids):
+                self._ids = ids
+
+            def scalars(self):
+                return self
+
+            def all(self):
+                return list(self._ids)
+
+        return _Result(self._active_ids)
+
+
+def _node(node_id: str, agent_id: str | None):
+    data = {} if agent_id is None else {"agent_id": agent_id}
+    return {"id": node_id, "type": "agent", "data": data}
+
+
+async def test_validate_topology_empty_nodes_rejected():
+    service = WorkflowService(_AgentQuerySession(set()), coordinator=None)
+    with pytest.raises(ValidationError):
+        await service._validate_topology({"nodes": [], "edges": []})
+
+
+async def test_validate_topology_no_entry_rejected():
+    # node-1 → node-2 → node-1 闭环，无无入边节点
+    a1 = uuid.uuid4()
+    topo = {
+        "nodes": [_node("node-1", str(a1)), _node("node-2", str(a1))],
+        "edges": [
+            {"source": "node-1", "target": "node-2"},
+            {"source": "node-2", "target": "node-1"},
+        ],
+    }
+    service = WorkflowService(_AgentQuerySession({a1}), coordinator=None)
+    with pytest.raises(ValidationError):
+        await service._validate_topology(topo)
+
+
+async def test_validate_topology_multi_entry_rejected():
+    a1 = uuid.uuid4()
+    topo = {
+        "nodes": [_node("node-1", str(a1)), _node("node-2", str(a1))],
+        "edges": [],  # 两个都无入边 → 双入口
+    }
+    service = WorkflowService(_AgentQuerySession({a1}), coordinator=None)
+    with pytest.raises(ValidationError):
+        await service._validate_topology(topo)
+
+
+async def test_validate_topology_node_without_agent_id_rejected():
+    topo = {
+        "nodes": [_node("node-1", None)],  # 未绑 agent_id，违反全 Agent 节点契约
+        "edges": [],
+    }
+    service = WorkflowService(_AgentQuerySession(set()), coordinator=None)
+    with pytest.raises(ValidationError):
+        await service._validate_topology(topo)
+
+
+async def test_validate_topology_invalid_uuid_rejected():
+    topo = {
+        "nodes": [_node("node-1", "not-a-uuid")],
+        "edges": [],
+    }
+    service = WorkflowService(_AgentQuerySession(set()), coordinator=None)
+    with pytest.raises(ValidationError):
+        await service._validate_topology(topo)
+
+
+async def test_validate_topology_missing_agent_rejected():
+    a1 = uuid.uuid4()
+    topo = {"nodes": [_node("node-1", str(a1))], "edges": []}
+    service = WorkflowService(_AgentQuerySession(set()), coordinator=None)
+    with pytest.raises(ValidationError):
+        await service._validate_topology(topo)
+
+
+async def test_validate_topology_happy_path_passes():
+    a1 = uuid.uuid4()
+    a2 = uuid.uuid4()
+    topo = {
+        "nodes": [_node("node-1", str(a1)), _node("node-2", str(a2))],
+        "edges": [{"source": "node-1", "target": "node-2"}],
+    }
+    service = WorkflowService(_AgentQuerySession({a1, a2}), coordinator=None)
+    await service._validate_topology(topo)
