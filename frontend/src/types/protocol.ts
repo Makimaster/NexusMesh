@@ -6,33 +6,33 @@ export interface AgentRequest {
   llm_provider: string;
   llm_model: string;
   system_prompt?: string;
-  config: Record<string, unknown>;
+  config?: Record<string, unknown>;
 }
 
 export interface AgentUpdateRequest {
-  name?: string;
-  description?: string;
-  agent_type?: string;
-  llm_provider?: string;
-  llm_model?: string;
-  system_prompt?: string;
-  config?: Record<string, unknown>;
+  name?: string | null;
+  description?: string | null;
+  agent_type?: string | null;
+  llm_provider?: string | null;
+  llm_model?: string | null;
+  system_prompt?: string | null;
+  config?: Record<string, unknown> | null;
 }
 
 export interface WorkflowRequest {
   name: string;
   description?: string;
-  topology: Record<string, unknown>;
-}
-
-export interface WorkflowUpdateRequest {
-  name?: string;
-  description?: string;
   topology?: Record<string, unknown>;
 }
 
+export interface WorkflowUpdateRequest {
+  name?: string | null;
+  description?: string | null;
+  topology?: Record<string, unknown> | null;
+}
+
 export interface TriggerRequest {
-  task_input: Record<string, unknown>;
+  task_input?: Record<string, unknown>;
 }
 
 // ============ REST Response Types ============
@@ -84,23 +84,69 @@ export interface ExecutionAcceptedResponse {
 export interface TimelineEventResponse {
   id: string;
   execution_id: string | null;
-  protocol_stage: ProtocolStage;
-  event_type: EventType;
-  payload: Record<string, unknown>;
+  protocol_stage: string;
+  event_type: string;
   created_at: string;
 }
 
 // ============ WebSocket Protocol Types ============
 export type ProtocolStage = 'INIT' | 'RECEIVE' | 'ROUTE' | 'EXECUTE' | 'FINISH';
-export type EventType = 'agent_spawn' | 'agent_call' | 'agent_finish' | 'agent_reflect';
+export type ProtocolEventType = 'agent_spawn' | 'agent_call' | 'agent_finish' | 'agent_reflect';
+export type StreamEventType = 'agent_chunk_stream';
+export type EventType = ProtocolEventType | StreamEventType;
 
-export interface WebSocketEvent {
-  execution_id: string;
+interface BaseProtocolWsEvent {
+  created_at: string;
   protocol_stage: ProtocolStage;
-  event_type: EventType;
-  payload: Record<string, unknown>;
-  timestamp: string;
+  event_type: ProtocolEventType;
 }
+
+export interface InitWsEvent extends BaseProtocolWsEvent {
+  protocol_stage: 'INIT';
+  agent_id: string;
+  workflow_id: string;
+}
+
+export interface ReceiveWsEvent extends BaseProtocolWsEvent {
+  protocol_stage: 'RECEIVE';
+  task_input: Record<string, unknown>;
+}
+
+export interface RouteWsEvent extends BaseProtocolWsEvent {
+  protocol_stage: 'ROUTE';
+  next_agent_id: string | null;
+  routing_reason: string | null;
+}
+
+export interface ExecuteWsEvent extends BaseProtocolWsEvent {
+  protocol_stage: 'EXECUTE';
+  agent_message: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  model: string;
+  model_cost_usd: number;
+}
+
+export interface FinishWsEvent extends BaseProtocolWsEvent {
+  protocol_stage: 'FINISH';
+  success: boolean;
+  output: Record<string, unknown> | null;
+}
+
+export interface AgentChunkStreamEvent {
+  event_type: 'agent_chunk_stream';
+  agent_id: string;
+  text: string;
+  reasoning: boolean;
+}
+
+export type WebSocketEvent =
+  | InitWsEvent
+  | ReceiveWsEvent
+  | RouteWsEvent
+  | ExecuteWsEvent
+  | FinishWsEvent
+  | AgentChunkStreamEvent;
 
 export type WsState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
