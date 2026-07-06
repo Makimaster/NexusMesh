@@ -8,9 +8,11 @@ import pytest
 import app.services.workflow_service as workflow_service_module
 from app.core.exceptions import NexusMeshException, NotFoundError, ValidationError
 from app.models.agent import Agent
+from app.models.execution import WorkflowExecution
 from app.models.workflow import Workflow
 from app.schemas.agent import AgentRequest, AgentUpdateRequest
 from app.schemas.workflow import TriggerRequest, WorkflowRequest, WorkflowUpdateRequest
+from app.services.execution_service import ExecutionService
 from app.services.agent_service import AgentService
 from app.services.workflow_service import WorkflowService
 
@@ -606,3 +608,61 @@ async def test_trigger_execution_soft_deleted_workflow_raises_404():
     with pytest.raises(NotFoundError):
         await service.trigger_execution(wid, task_input={})
     coordinator.start_execution.assert_not_awaited()
+
+
+class _ExecSession:
+    """fake session：get 返回预置执行实例；execute 返回预置事件列表。"""
+
+    def __init__(self, execution=None, events=None) -> None:
+        self._execution = execution
+        self._events = events or []
+
+    async def get(self, model, pk):
+        return self._execution
+
+    async def execute(self, stmt):
+        events = self._events
+
+        class _Result:
+            def scalars(self):
+                return self
+
+            def all(self):
+                return list(events)
+
+        return _Result()
+
+
+async def test_get_execution_detail_missing_raises_404():
+    service = ExecutionService(_ExecSession(execution=None))
+    with pytest.raises(NotFoundError):
+        await service.get_execution_detail(uuid.uuid4())
+
+
+async def test_get_execution_detail_returns_row():
+    eid = uuid.uuid4()
+    row = WorkflowExecution(id=eid, status="completed", input={})
+    service = ExecutionService(_ExecSession(execution=row))
+    result = await service.get_execution_detail(eid)
+    assert result.id == eid
+
+
+async def test_get_timeline_missing_execution_raises_404():
+    service = ExecutionService(_ExecSession(execution=None))
+    with pytest.raises(NotFoundError):
+        await service.get_execution_timeline(uuid.uuid4())
+
+
+async def test_get_timeline_returns_events():
+    eid = uuid.uuid4()
+    row = WorkflowExecution(id=eid, status="completed", input={})
+    from app.models.event import ExecutionEvent
+
+    evts = [
+        ExecutionEvent(execution_id=eid, protocol_stage="INIT", event_type="agent_spawn"),
+        ExecutionEvent(execution_id=eid, protocol_stage="FINISH", event_type="agent_finish"),
+    ]
+    service = ExecutionService(_ExecSession(execution=row, events=evts))
+    timeline = await service.get_execution_timeline(eid)
+    assert len(timeline) == 2
+    assert timeline[0].protocol_stage == "INIT"
