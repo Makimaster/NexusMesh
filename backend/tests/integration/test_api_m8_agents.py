@@ -239,6 +239,32 @@ def test_developer_updates_agent(
     assert response.json()["name"] == "updated-agent"
 
 
+def test_admin_updates_agent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, as_admin: SimpleNamespace
+) -> None:
+    agent = _agent(name="admin-updated-agent")
+    captured = {}
+
+    async def fake_update_agent(
+        self, agent_id: uuid.UUID, schema
+    ) -> SimpleNamespace:
+        captured["agent_id"] = agent_id
+        captured["schema"] = schema
+        return agent
+
+    monkeypatch.setattr(AgentService, "update_agent", fake_update_agent)
+
+    response = client.patch(
+        f"/api/v1/agents/{agent.id}", json={"name": "admin-updated-agent"}
+    )
+
+    assert response.status_code == 200
+    assert as_admin.role == UserRole.ADMIN.value
+    assert captured["agent_id"] == agent.id
+    assert captured["schema"].name == "admin-updated-agent"
+    assert response.json()["name"] == "admin-updated-agent"
+
+
 def test_viewer_cannot_update_agent(client: TestClient) -> None:
     _override_user(_user(UserRole.VIEWER))
 
@@ -263,6 +289,25 @@ def test_developer_deletes_agent(
 
     assert response.status_code == 204
     assert response.content == b""
+    assert captured["agent_id"] == agent_id
+
+
+def test_admin_deletes_agent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, as_admin: SimpleNamespace
+) -> None:
+    agent_id = uuid.uuid4()
+    captured = {}
+
+    async def fake_delete_agent(self, agent_id: uuid.UUID) -> None:
+        captured["agent_id"] = agent_id
+
+    monkeypatch.setattr(AgentService, "delete_agent", fake_delete_agent)
+
+    response = client.delete(f"/api/v1/agents/{agent_id}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert as_admin.role == UserRole.ADMIN.value
     assert captured["agent_id"] == agent_id
 
 
