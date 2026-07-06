@@ -1,11 +1,10 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from app.schemas.agent import AgentListItem, AgentResponse
 from app.schemas.execution import (
     ExecutionAcceptedResponse,
-    ExecutionListItem,
     ExecutionResponse,
     TimelineEventResponse,
 )
@@ -13,7 +12,7 @@ from app.schemas.workflow import WorkflowListItem, WorkflowResponse
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def test_agent_list_item_strips_heavy_fields() -> None:
