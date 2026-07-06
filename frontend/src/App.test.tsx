@@ -1,7 +1,7 @@
 import React, { act } from "react";
 import ReactDOM from "react-dom/client";
-import { afterEach, describe, expect, test } from "vitest";
 import { MemoryRouter } from "react-router";
+import { afterEach, describe, expect, test } from "vitest";
 
 import App from "./App";
 
