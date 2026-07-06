@@ -739,6 +739,7 @@ DoD 原文：**"WS 连接/重连 + REST 数据获取 hook 有测试或最小可�
 **新增依赖与配置**：
 - `package.json` devDependency：`vitest`、`jsdom`；新增脚本 `"test": "vitest"`
 - `vite.config.ts` 追加 `test: { environment: 'jsdom' }` 配置块（复用现有 Vite 配置，无独立 vitest.config.ts）
+- `frontend/src/smoke.test.ts` 作为 Task 2→Task 3 过渡期的最小冒烟校验，待 `ws.test.ts` 落地后可移除
 
 **`api/ws.test.ts` 核心用例**：
 

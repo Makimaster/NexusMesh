@@ -287,14 +287,14 @@ test('vitest 环境就绪', () => {
 Run: `cd frontend && pnpm run test`
 Expected: PASS，1 passed。
 
-- [ ] **Step 5: 删除冒烟文件**
+- [ ] **Step 5: 暂留冒烟文件作为过渡期最小校验**
 
-Run: `cd frontend && rm src/smoke.test.ts`
+> `vitest run` 在零测试文件时会直接退出 1。为保证 Task 2 完成后 `pnpm run test` 仍可独立运行，保留 `frontend/src/smoke.test.ts` 直到 Task 3 的 `ws.test.ts` 落地，再由真实测试替换这份环境冒烟用例。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd frontend && git add package.json pnpm-lock.yaml vite.config.ts
+cd frontend && git add package.json pnpm-lock.yaml vite.config.ts src/smoke.test.ts
 git commit -m "chore(M9): 接入 vitest + jsdom 测试环境"
 ```
 

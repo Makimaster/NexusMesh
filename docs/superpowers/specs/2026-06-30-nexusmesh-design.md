@@ -101,7 +101,7 @@
 
 | 依赖 | 版本 | 说明 |
 |------|------|------|
-| Node.js | `22.x LTS` | Iron LTS |
+| Node.js | `22.13+ LTS` | 前端测试栈（`jsdom@29`）要求 `^22.13.0` |
 | pnpm | `9.x` | 禁止 npm/yarn 混用 |
 | React | `19.x` | ⚠️ 引入第三方库须验证 React 19 兼容性 |
 | Vite | `6.x` | Library Mode SPA |
