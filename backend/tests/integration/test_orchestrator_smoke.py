@@ -116,13 +116,16 @@ async def seeded_db():
                         llm_model="gpt-4o",
                         system_prompt="you are helpful",
                     ),
-                    WorkflowExecution(
-                        id=EXEC_ID,
-                        workflow_id=WF_ID,
-                        status="pending",
-                        input={"query": "hi"},
-                    ),
                 ]
+            )
+            await session.flush()
+            session.add(
+                WorkflowExecution(
+                    id=EXEC_ID,
+                    workflow_id=WF_ID,
+                    status="pending",
+                    input={"query": "hi"},
+                )
             )
     yield
     await _cleanup()

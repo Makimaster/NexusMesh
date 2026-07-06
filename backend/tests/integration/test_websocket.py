@@ -14,7 +14,6 @@ from app.main import app
 from app.state_manager.keys import get_channel_events
 from app.websocket.broadcaster import broadcaster
 
-
 REDIS_URL = "redis://localhost:6379/0"
 
 
@@ -69,7 +68,7 @@ def test_websocket_happy_path_receives_redis_frame(websocket_test_cleanup):
     user_id = str(uuid.uuid4())
     token = create_access_token({"sub": user_id})
     channel = get_channel_events(execution_id)
-    payload = '{"event":"task.updated","execution_id":"%s"}' % execution_id
+    payload = f'{{"event":"task.updated","execution_id":"{execution_id}"}}'
 
     with TestClient(app) as client:
         redis_client = redis.Redis.from_url(
