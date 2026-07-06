@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from app.schemas.agent import AgentListItem, AgentResponse
 from app.schemas.execution import (
     ExecutionAcceptedResponse,
+    ExecutionListItem,
     ExecutionResponse,
     TimelineEventResponse,
 )
@@ -19,6 +20,7 @@ def test_agent_list_item_strips_heavy_fields() -> None:
     orm = SimpleNamespace(
         id=uuid.uuid4(),
         name="a1",
+        description="desc",
         agent_type="assistant",
         llm_provider="openai",
         llm_model="gpt-4o",
@@ -32,6 +34,7 @@ def test_agent_list_item_strips_heavy_fields() -> None:
     assert "system_prompt" not in dumped
     assert "config" not in dumped
     assert "is_active" not in dumped
+    assert dumped["description"] == "desc"
     assert dumped["llm_model"] == "gpt-4o"
 
 
@@ -39,6 +42,7 @@ def test_agent_response_includes_heavy_fields() -> None:
     orm = SimpleNamespace(
         id=uuid.uuid4(),
         name="a1",
+        description="desc",
         agent_type="assistant",
         llm_provider="openai",
         llm_model="gpt-4o",
@@ -47,8 +51,28 @@ def test_agent_response_includes_heavy_fields() -> None:
         created_at=_now(),
     )
     resp = AgentResponse.model_validate(orm)
+    assert resp.description == "desc"
     assert resp.system_prompt == "secret"
     assert resp.config == {"k": "v"}
+
+
+def test_execution_list_item_strips_detail_fields() -> None:
+    orm = SimpleNamespace(
+        id=uuid.uuid4(),
+        workflow_id=uuid.uuid4(),
+        status="succeeded",
+        created_at=_now(),
+        started_at=_now(),
+        finished_at=_now(),
+        input={"q": 1},
+        output={"answer": 2},
+        error="ignored",
+    )
+    item = ExecutionListItem.model_validate(orm)
+    dumped = item.model_dump()
+    assert "input" not in dumped
+    assert "output" not in dumped
+    assert "error" not in dumped
 
 
 def test_workflow_list_item_strips_topology() -> None:

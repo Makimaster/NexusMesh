@@ -29,6 +29,7 @@ class AgentListItem(BaseModel):
 
     id: uuid.UUID
     name: str
+    description: str | None = None
     agent_type: str
     llm_provider: str
     llm_model: str
