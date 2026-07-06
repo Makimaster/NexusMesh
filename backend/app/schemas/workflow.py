@@ -1,4 +1,7 @@
-from pydantic import BaseModel, Field
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WorkflowRequest(BaseModel):
@@ -15,3 +18,16 @@ class WorkflowUpdateRequest(BaseModel):
 
 class TriggerRequest(BaseModel):
     task_input: dict = Field(default_factory=dict)
+
+
+class WorkflowListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    description: str | None = None
+    created_at: datetime
+
+
+class WorkflowResponse(WorkflowListItem):
+    topology: dict

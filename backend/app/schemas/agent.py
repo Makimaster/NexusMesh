@@ -1,4 +1,7 @@
-from pydantic import BaseModel, Field
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AgentRequest(BaseModel):
@@ -19,3 +22,19 @@ class AgentUpdateRequest(BaseModel):
     llm_model: str | None = Field(default=None, min_length=1, max_length=100)
     system_prompt: str | None = None
     config: dict | None = None
+
+
+class AgentListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    agent_type: str
+    llm_provider: str
+    llm_model: str
+    created_at: datetime
+
+
+class AgentResponse(AgentListItem):
+    system_prompt: str | None = None
+    config: dict
