@@ -1,7 +1,7 @@
-import { Outlet } from 'react-router';
-import { Topbar } from './Topbar';
-import { Sidebar } from './Sidebar';
-import './layout.css';
+import { Outlet } from "react-router";
+import { Sidebar } from "./Sidebar";
+import { Topbar } from "./Topbar";
+import "./layout.css";
 
 export function AppShell() {
   return (

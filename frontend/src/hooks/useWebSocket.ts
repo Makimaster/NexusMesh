@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { createWsClient } from '../api/ws';
-import type { WsClient, WsState, WebSocketEvent } from '../types/protocol';
+import { useEffect, useRef, useState } from "react";
+import { createWsClient } from "../api/ws";
+import type { WebSocketEvent, WsClient, WsState } from "../types/protocol";
 
 interface UseWebSocketOptions {
   executionId: string;
@@ -12,10 +12,12 @@ interface UseWebSocketResult {
   state: WsState;
 }
 
-export function useWebSocket(
-  { executionId, token, onEvent }: UseWebSocketOptions,
-): UseWebSocketResult {
-  const [state, setState] = useState<WsState>('disconnected');
+export function useWebSocket({
+  executionId,
+  token,
+  onEvent,
+}: UseWebSocketOptions): UseWebSocketResult {
+  const [state, setState] = useState<WsState>("disconnected");
   const clientRef = useRef<WsClient | null>(null);
   const onEventRef = useRef(onEvent);
 

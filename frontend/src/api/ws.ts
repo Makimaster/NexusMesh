@@ -1,8 +1,8 @@
-import type { WebSocketEvent, WsClient, WsState } from '../types/protocol';
+import type { WebSocketEvent, WsClient, WsState } from "../types/protocol";
 
 export function createWsClient(): WsClient {
   let socket: WebSocket | null = null;
-  let currentState: WsState = 'disconnected';
+  let currentState: WsState = "disconnected";
   let currentExecutionId: string | null = null;
   let currentToken: string | null = null;
   let reconnectDelay = 1000;
@@ -14,7 +14,9 @@ export function createWsClient(): WsClient {
   function changeState(nextState: WsState) {
     if (currentState === nextState) return;
     currentState = nextState;
-    stateHandlers.forEach((handler) => handler(currentState));
+    for (const handler of stateHandlers) {
+      handler(currentState);
+    }
   }
 
   function resetConnection(resetReconnectDelay: boolean) {
@@ -30,46 +32,53 @@ export function createWsClient(): WsClient {
     if (socket) {
       const tempSocket = socket;
       socket = null;
-      changeState('disconnected');
+      changeState("disconnected");
       tempSocket.close();
     } else {
-      changeState('disconnected');
+      changeState("disconnected");
     }
   }
 
-  function connect(executionId: string, token: string, resetReconnectDelay = true) {
-    if (socket && currentExecutionId === executionId && currentToken === token) return;
+  function connect(
+    executionId: string,
+    token: string,
+    resetReconnectDelay = true,
+  ) {
+    if (socket && currentExecutionId === executionId && currentToken === token)
+      return;
     resetConnection(resetReconnectDelay);
 
     currentExecutionId = executionId;
     currentToken = token;
-    changeState('connecting');
+    changeState("connecting");
 
-    const baseWsUrl = import.meta.env.VITE_WS_URL || `ws://${window.location.host}`;
+    const baseWsUrl =
+      import.meta.env.VITE_WS_URL || `ws://${window.location.host}`;
     const wsUrl = `${baseWsUrl}/ws/executions/${executionId}?token=${token}`;
     socket = new WebSocket(wsUrl);
 
     socket.onopen = () => {
       reconnectDelay = 1000;
-      changeState('connected');
+      changeState("connected");
     };
 
     socket.onmessage = (event) => {
       try {
         const parsed: WebSocketEvent = JSON.parse(event.data);
-        eventHandlers.forEach((handler) => handler(parsed));
-      } catch {
-      }
+        for (const handler of eventHandlers) {
+          handler(parsed);
+        }
+      } catch {}
     };
 
     socket.onclose = (event) => {
       socket = null;
       if (event.code === 1008 || event.code >= 4000) {
-        changeState('error');
+        changeState("error");
         return;
       }
-      if (currentState === 'disconnected') return;
-      changeState('disconnected');
+      if (currentState === "disconnected") return;
+      changeState("disconnected");
       reconnectTimer = window.setTimeout(() => {
         reconnectTimer = null;
         if (currentExecutionId && currentToken) {

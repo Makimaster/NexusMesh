@@ -1,9 +1,9 @@
-import { NavLink } from 'react-router';
+import { NavLink } from "react-router";
 
 const NAV_ITEMS = [
-  { to: '/agents', label: 'Agents' },
-  { to: '/workflows', label: 'Workflows' },
-  { to: '/executions', label: 'Executions' },
+  { to: "/agents", label: "Agents" },
+  { to: "/workflows", label: "Workflows" },
+  { to: "/executions", label: "Executions" },
 ] as const;
 
 export function Sidebar() {
@@ -15,7 +15,9 @@ export function Sidebar() {
             <NavLink
               to={to}
               className={({ isActive }) =>
-                isActive ? 'mesh-sidebar-link mesh-sidebar-link--active' : 'mesh-sidebar-link'
+                isActive
+                  ? "mesh-sidebar-link mesh-sidebar-link--active"
+                  : "mesh-sidebar-link"
               }
             >
               {label}

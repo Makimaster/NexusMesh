@@ -91,9 +91,13 @@ export interface TimelineEventResponse {
 }
 
 // ============ WebSocket Protocol Types ============
-export type ProtocolStage = 'INIT' | 'RECEIVE' | 'ROUTE' | 'EXECUTE' | 'FINISH';
-export type ProtocolEventType = 'agent_spawn' | 'agent_call' | 'agent_finish' | 'agent_reflect';
-export type StreamEventType = 'agent_chunk_stream';
+export type ProtocolStage = "INIT" | "RECEIVE" | "ROUTE" | "EXECUTE" | "FINISH";
+export type ProtocolEventType =
+  | "agent_spawn"
+  | "agent_call"
+  | "agent_finish"
+  | "agent_reflect";
+export type StreamEventType = "agent_chunk_stream";
 export type EventType = ProtocolEventType | StreamEventType;
 
 interface BaseProtocolWsEvent {
@@ -103,24 +107,24 @@ interface BaseProtocolWsEvent {
 }
 
 export interface InitWsEvent extends BaseProtocolWsEvent {
-  protocol_stage: 'INIT';
+  protocol_stage: "INIT";
   agent_id: string;
   workflow_id: string;
 }
 
 export interface ReceiveWsEvent extends BaseProtocolWsEvent {
-  protocol_stage: 'RECEIVE';
+  protocol_stage: "RECEIVE";
   task_input: Record<string, unknown>;
 }
 
 export interface RouteWsEvent extends BaseProtocolWsEvent {
-  protocol_stage: 'ROUTE';
+  protocol_stage: "ROUTE";
   next_agent_id: string | null;
   routing_reason: string | null;
 }
 
 export interface ExecuteWsEvent extends BaseProtocolWsEvent {
-  protocol_stage: 'EXECUTE';
+  protocol_stage: "EXECUTE";
   agent_message: string;
   prompt_tokens: number;
   completion_tokens: number;
@@ -129,13 +133,13 @@ export interface ExecuteWsEvent extends BaseProtocolWsEvent {
 }
 
 export interface FinishWsEvent extends BaseProtocolWsEvent {
-  protocol_stage: 'FINISH';
+  protocol_stage: "FINISH";
   success: boolean;
   output: Record<string, unknown> | null;
 }
 
 export interface AgentChunkStreamEvent {
-  event_type: 'agent_chunk_stream';
+  event_type: "agent_chunk_stream";
   agent_id: string;
   text: string;
   reasoning: boolean;
@@ -149,7 +153,7 @@ export type WebSocketEvent =
   | FinishWsEvent
   | AgentChunkStreamEvent;
 
-export type WsState = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type WsState = "disconnected" | "connecting" | "connected" | "error";
 
 export interface WsClient {
   connect(executionId: string, token: string): void;
