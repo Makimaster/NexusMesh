@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import app.services.workflow_service as workflow_service_module
 from app.core.exceptions import NexusMeshException, NotFoundError, ValidationError
 from app.models.agent import Agent
 from app.models.workflow import Workflow
@@ -413,6 +414,120 @@ async def test_validate_topology_happy_path_passes():
     assert "agents.is_active IS true" in stmt_text
 
 
+def test_workflow_service_module_docstring_matches_scope():
+    assert workflow_service_module.__doc__ == (
+        "M7 WorkflowService：负责 Workflow 拓扑预检、CRUD 与执行触发。"
+    )
+
+
+async def test_create_workflow_sets_active_created_by_and_validates_topology():
+    session = _FakeSession()
+    service = WorkflowService(session, coordinator=None)
+    creator = uuid.uuid4()
+    topology = {"nodes": [{"id": "n1"}], "edges": []}
+    req = WorkflowRequest(name="wf", topology=topology)
+    service._validate_topology = AsyncMock()
+
+    workflow = await service.create_workflow(req, created_by=creator)
+
+    service._validate_topology.assert_awaited_once_with(topology)
+    assert workflow.is_active is True
+    assert workflow.created_by == creator
+    assert session.flushed == 1
+    assert session.committed == 0
+
+
+async def test_get_workflow_detail_missing_raises_404():
+    service = WorkflowService(_FakeSession(), coordinator=None)
+    with pytest.raises(NotFoundError):
+        await service.get_workflow_detail(uuid.uuid4())
+
+
+async def test_get_workflow_detail_soft_deleted_raises_404():
+    wid = uuid.uuid4()
+    workflow = Workflow(id=wid, name="wf", topology={}, is_active=False)
+    service = WorkflowService(_FakeSession({wid: workflow}), coordinator=None)
+
+    with pytest.raises(NotFoundError):
+        await service.get_workflow_detail(wid)
+
+
+async def test_list_workflows_returns_rows_and_builds_active_desc_query():
+    first = Workflow(id=uuid.uuid4(), name="first", topology={}, is_active=True)
+    second = Workflow(id=uuid.uuid4(), name="second", topology={}, is_active=True)
+    session = _FakeSession()
+    session.execute_rows = [first, second]
+    service = WorkflowService(session, coordinator=None)
+
+    rows = await service.list_workflows(limit=5, offset=2)
+
+    assert rows == [first, second]
+    stmt_text = str(session.last_statement)
+    assert "WHERE workflows.is_active IS true" in stmt_text
+    assert "ORDER BY workflows.created_at DESC" in stmt_text
+    assert "LIMIT :param_1" in stmt_text
+    assert "OFFSET :param_2" in stmt_text
+
+
+async def test_update_workflow_revalidates_topology_and_pops_dirty_fields(
+    monkeypatch,
+):
+    wid = uuid.uuid4()
+    workflow = Workflow(id=wid, name="wf", topology={}, is_active=True)
+    service = WorkflowService(_FakeSession({wid: workflow}), coordinator=None)
+    req = WorkflowUpdateRequest(name="renamed")
+    dirty_id = uuid.uuid4()
+    new_topology = {"nodes": [{"id": "n1"}], "edges": []}
+    service._validate_topology = AsyncMock()
+
+    def fake_model_dump(self, *args, **kwargs):
+        return {
+            "name": "renamed",
+            "topology": new_topology,
+            "id": dirty_id,
+            "is_active": False,
+        }
+
+    monkeypatch.setattr(WorkflowUpdateRequest, "model_dump", fake_model_dump)
+
+    updated = await service.update_workflow(wid, req)
+
+    service._validate_topology.assert_awaited_once_with(new_topology)
+    assert updated.name == "renamed"
+    assert updated.topology == new_topology
+    assert updated.is_active is True
+    assert updated.id == wid
+
+
+async def test_delete_workflow_soft_deletes():
+    wid = uuid.uuid4()
+    workflow = Workflow(id=wid, name="wf", topology={}, is_active=True)
+    session = _FakeSession({wid: workflow})
+    service = WorkflowService(session, coordinator=None)
+
+    await service.delete_workflow(wid)
+
+    assert workflow.is_active is False
+    assert session.flushed == 1
+
+
+async def test_delete_workflow_idempotent_when_missing():
+    service = WorkflowService(_FakeSession(), coordinator=None)
+
+    await service.delete_workflow(uuid.uuid4())
+
+
+async def test_delete_workflow_idempotent_when_soft_deleted():
+    wid = uuid.uuid4()
+    workflow = Workflow(id=wid, name="wf", topology={}, is_active=False)
+    session = _FakeSession({wid: workflow})
+    service = WorkflowService(session, coordinator=None)
+
+    await service.delete_workflow(wid)
+
+    assert session.flushed == 0
+
+
 class _TriggerSession:
     """记录 add / commit / refresh 调用顺序的 fake session。"""
 
@@ -442,11 +557,14 @@ async def test_trigger_execution_commits_before_start():
     workflow = Workflow(id=wid, name="wf", topology={}, is_active=True)
     session = _TriggerSession(workflow)
     coordinator = AsyncMock()
+    coordinator.start_execution.side_effect = (
+        lambda _execution_id: session.events.append("start_execution")
+    )
     service = WorkflowService(session, coordinator=coordinator)
 
     exec_id = await service.trigger_execution(wid, task_input={"query": "hi"})
 
-    assert "commit" in session.events
+    assert session.events.index("commit") < session.events.index("start_execution")
     coordinator.start_execution.assert_awaited_once_with(str(exec_id))
     assert session.added[0].status == "pending"
     assert session.added[0].input == {"query": "hi"}

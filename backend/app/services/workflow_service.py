@@ -1,4 +1,4 @@
-"""M7 WorkflowService：仅负责 Workflow 拓扑预检。"""
+"""M7 WorkflowService：负责 Workflow 拓扑预检、CRUD 与执行触发。"""
 
 from __future__ import annotations
 
