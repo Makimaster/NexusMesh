@@ -104,6 +104,27 @@ describe('createWsClient', () => {
     expect(MockWebSocket.instances.length).toBe(before + 1);
   });
 
+  test('disconnect 后重新 connect 时，新会话首个断线从 1s 重新退避', () => {
+    const client = createWsClient();
+    client.connect('exec-1', 'tok');
+    MockWebSocket.latest().onopen?.();
+
+    MockWebSocket.latest().onclose?.({ code: 1006 });
+    vi.advanceTimersByTime(1000);
+    MockWebSocket.latest().onclose?.({ code: 1006 });
+    vi.advanceTimersByTime(2000);
+
+    client.disconnect();
+    client.connect('exec-1', 'tok');
+    const before = MockWebSocket.instances.length;
+    MockWebSocket.latest().onclose?.({ code: 1006 });
+
+    vi.advanceTimersByTime(999);
+    expect(MockWebSocket.instances.length).toBe(before);
+    vi.advanceTimersByTime(1);
+    expect(MockWebSocket.instances.length).toBe(before + 1);
+  });
+
   test('策略违规码 1008 触发熔断：state=error 且不重连', () => {
     const client = createWsClient();
     client.connect('exec-1', 'tok');
@@ -122,6 +143,18 @@ describe('createWsClient', () => {
     expect(client.getState()).toBe('disconnected');
     vi.advanceTimersByTime(60000);
     expect(MockWebSocket.instances.length).toBe(1);
+  });
+
+  test('同一 executionId 但不同 token 时会重新建连并使用新 URL', () => {
+    const client = createWsClient();
+    client.connect('exec-1', 'tok-a');
+    const firstSocket = MockWebSocket.latest();
+
+    client.connect('exec-1', 'tok-b');
+
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(firstSocket.close).toHaveBeenCalledTimes(1);
+    expect(MockWebSocket.latest().url).toContain('/ws/executions/exec-1?token=tok-b');
   });
 
   test('onEvent 收到 message 并可 unsubscribe', () => {

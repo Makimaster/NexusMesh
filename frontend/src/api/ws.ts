@@ -17,9 +17,29 @@ export function createWsClient(): WsClient {
     stateHandlers.forEach((handler) => handler(currentState));
   }
 
-  function connect(executionId: string, token: string) {
-    if (socket && currentExecutionId === executionId) return;
-    disconnect();
+  function resetConnection(resetReconnectDelay: boolean) {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (resetReconnectDelay) {
+      reconnectDelay = 1000;
+    }
+    currentExecutionId = null;
+    currentToken = null;
+    if (socket) {
+      const tempSocket = socket;
+      socket = null;
+      changeState('disconnected');
+      tempSocket.close();
+    } else {
+      changeState('disconnected');
+    }
+  }
+
+  function connect(executionId: string, token: string, resetReconnectDelay = true) {
+    if (socket && currentExecutionId === executionId && currentToken === token) return;
+    resetConnection(resetReconnectDelay);
 
     currentExecutionId = executionId;
     currentToken = token;
@@ -51,29 +71,17 @@ export function createWsClient(): WsClient {
       if (currentState === 'disconnected') return;
       changeState('disconnected');
       reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
         if (currentExecutionId && currentToken) {
           reconnectDelay = Math.min(30000, reconnectDelay * 2);
-          connect(currentExecutionId, currentToken);
+          connect(currentExecutionId, currentToken, false);
         }
       }, reconnectDelay);
     };
   }
 
   function disconnect() {
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    currentExecutionId = null;
-    currentToken = null;
-    if (socket) {
-      const tempSocket = socket;
-      socket = null;
-      changeState('disconnected');
-      tempSocket.close();
-    } else {
-      changeState('disconnected');
-    }
+    resetConnection(true);
   }
 
   return {
