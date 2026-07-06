@@ -9,6 +9,7 @@ from app.models.agent import Agent
 from app.schemas.agent import AgentRequest, AgentUpdateRequest
 from app.schemas.workflow import TriggerRequest, WorkflowRequest, WorkflowUpdateRequest
 from app.services.agent_service import AgentService
+from app.services.workflow_service import WorkflowService
 
 
 def test_validation_error_is_422_and_subclass():
@@ -302,16 +303,18 @@ async def test_update_agent_pops_dirty_fields(monkeypatch):
     assert updated.id == aid
 
 
-from app.services.workflow_service import WorkflowService
-
-
 class _AgentQuerySession:
     """fake session：execute(select(Agent.id)...) 返回预置的存活 id 集合。"""
 
     def __init__(self, active_ids: set[uuid.UUID]) -> None:
         self._active_ids = active_ids
+        self.last_statement = None
+        self.execute_calls = 0
 
     async def execute(self, stmt):
+        self.last_statement = stmt
+        self.execute_calls += 1
+
         class _Result:
             def __init__(self, ids):
                 self._ids = ids
@@ -332,7 +335,7 @@ def _node(node_id: str, agent_id: str | None):
 
 async def test_validate_topology_empty_nodes_rejected():
     service = WorkflowService(_AgentQuerySession(set()), coordinator=None)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="画布节点集合为空"):
         await service._validate_topology({"nodes": [], "edges": []})
 
 
@@ -347,7 +350,7 @@ async def test_validate_topology_no_entry_rejected():
         ],
     }
     service = WorkflowService(_AgentQuerySession({a1}), coordinator=None)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="未检测到无入边的起始入口节点"):
         await service._validate_topology(topo)
 
 
@@ -358,7 +361,7 @@ async def test_validate_topology_multi_entry_rejected():
         "edges": [],  # 两个都无入边 → 双入口
     }
     service = WorkflowService(_AgentQuerySession({a1}), coordinator=None)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="存在多个无入边的冲突起始节点"):
         await service._validate_topology(topo)
 
 
@@ -368,7 +371,7 @@ async def test_validate_topology_node_without_agent_id_rejected():
         "edges": [],
     }
     service = WorkflowService(_AgentQuerySession(set()), coordinator=None)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="未绑定 agent_id"):
         await service._validate_topology(topo)
 
 
@@ -378,7 +381,7 @@ async def test_validate_topology_invalid_uuid_rejected():
         "edges": [],
     }
     service = WorkflowService(_AgentQuerySession(set()), coordinator=None)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="智能体主键格式非法"):
         await service._validate_topology(topo)
 
 
@@ -386,16 +389,23 @@ async def test_validate_topology_missing_agent_rejected():
     a1 = uuid.uuid4()
     topo = {"nodes": [_node("node-1", str(a1))], "edges": []}
     service = WorkflowService(_AgentQuerySession(set()), coordinator=None)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="引用的智能体不存在或已被清退"):
         await service._validate_topology(topo)
 
 
 async def test_validate_topology_happy_path_passes():
     a1 = uuid.uuid4()
     a2 = uuid.uuid4()
+    session = _AgentQuerySession({a1, a2})
     topo = {
         "nodes": [_node("node-1", str(a1)), _node("node-2", str(a2))],
         "edges": [{"source": "node-1", "target": "node-2"}],
     }
-    service = WorkflowService(_AgentQuerySession({a1, a2}), coordinator=None)
+    service = WorkflowService(session, coordinator=None)
     await service._validate_topology(topo)
+
+    assert session.execute_calls == 1
+    stmt_text = str(session.last_statement)
+    assert "SELECT agents.id" in stmt_text
+    assert "agents.id IN" in stmt_text
+    assert "agents.is_active IS true" in stmt_text
