@@ -63,3 +63,4 @@ backend/migrations/__pycache__/
 
 # ─── Local AI Workspace ─────────────────────────
 .claude/
+.superpowers/
