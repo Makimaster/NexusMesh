@@ -4,7 +4,7 @@
 
 **Goal:** 搭建 NexusMesh 前端通信总线（WebSocket + REST）与应用外壳骨架，供 M10/M11/M12 业务模块零感知消费。
 
-**Architecture:** 纯分层，依赖单向向下。`protocol.ts` 类型总线 → `ws.ts`（零 React 纯 TS，含指数退避 + 4000+ 熔断）→ `useWebSocket` → `useAgentStream`；REST 三文件复用 Phase 1 `http` 实例；布局层（AppShell/Topbar/Sidebar）对 WS 零感知。
+**Architecture:** 纯分层，依赖单向向下。`protocol.ts` 类型总线 → `ws.ts`（零 React 纯 TS，含指数退避 + 非重试关闭码熔断）→ `useWebSocket` → `useAgentStream`；REST 三文件复用 Phase 1 `http` 实例；布局层（AppShell/Topbar/Sidebar）对 WS 零感知。
 
 **Tech Stack:** React 19 + TypeScript 5.8 + Vite 6 + react-router 7 + axios + TanStack Query + Zustand + Biome + vitest（新增）。
 
@@ -53,33 +53,33 @@ export interface AgentRequest {
   llm_provider: string;
   llm_model: string;
   system_prompt?: string;
-  config: Record<string, unknown>;
+  config?: Record<string, unknown>;
 }
 
 export interface AgentUpdateRequest {
-  name?: string;
-  description?: string;
-  agent_type?: string;
-  llm_provider?: string;
-  llm_model?: string;
-  system_prompt?: string;
-  config?: Record<string, unknown>;
+  name?: string | null;
+  description?: string | null;
+  agent_type?: string | null;
+  llm_provider?: string | null;
+  llm_model?: string | null;
+  system_prompt?: string | null;
+  config?: Record<string, unknown> | null;
 }
 
 export interface WorkflowRequest {
   name: string;
   description?: string;
-  topology: Record<string, unknown>;
-}
-
-export interface WorkflowUpdateRequest {
-  name?: string;
-  description?: string;
   topology?: Record<string, unknown>;
 }
 
+export interface WorkflowUpdateRequest {
+  name?: string | null;
+  description?: string | null;
+  topology?: Record<string, unknown> | null;
+}
+
 export interface TriggerRequest {
-  task_input: Record<string, unknown>;
+  task_input?: Record<string, unknown>;
 }
 
 // ============ REST Response Types ============
@@ -132,22 +132,73 @@ export interface TimelineEventResponse {
   id: string;
   execution_id: string | null;
   protocol_stage: ProtocolStage;
-  event_type: EventType;
+  event_type: ProtocolEventType;
   payload: Record<string, unknown>;
   created_at: string;
 }
 
 // ============ WebSocket Protocol Types ============
 export type ProtocolStage = 'INIT' | 'RECEIVE' | 'ROUTE' | 'EXECUTE' | 'FINISH';
-export type EventType = 'agent_spawn' | 'agent_call' | 'agent_finish' | 'agent_reflect';
+export type ProtocolEventType = 'agent_spawn' | 'agent_call' | 'agent_finish' | 'agent_reflect';
+export type StreamEventType = 'agent_chunk_stream';
+export type EventType = ProtocolEventType | StreamEventType;
 
-export interface WebSocketEvent {
-  execution_id: string;
-  protocol_stage: ProtocolStage;
-  event_type: EventType;
-  payload: Record<string, unknown>;
-  timestamp: string;
+export interface InitWsEvent {
+  protocol_stage: 'INIT';
+  event_type: ProtocolEventType;
+  created_at: string;
+  agent_id: string;
+  workflow_id: string;
 }
+
+export interface ReceiveWsEvent {
+  protocol_stage: 'RECEIVE';
+  event_type: ProtocolEventType;
+  created_at: string;
+  task_input: Record<string, unknown>;
+}
+
+export interface RouteWsEvent {
+  protocol_stage: 'ROUTE';
+  event_type: ProtocolEventType;
+  created_at: string;
+  next_agent_id: string | null;
+  routing_reason: string | null;
+}
+
+export interface ExecuteWsEvent {
+  protocol_stage: 'EXECUTE';
+  event_type: ProtocolEventType;
+  created_at: string;
+  agent_message: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  model: string;
+  model_cost_usd: number;
+}
+
+export interface FinishWsEvent {
+  protocol_stage: 'FINISH';
+  event_type: ProtocolEventType;
+  created_at: string;
+  success: boolean;
+  output: Record<string, unknown> | null;
+}
+
+export interface AgentChunkStreamEvent {
+  event_type: 'agent_chunk_stream';
+  agent_id: string;
+  text: string;
+  reasoning: boolean;
+}
+
+export type WebSocketEvent =
+  | InitWsEvent
+  | ReceiveWsEvent
+  | RouteWsEvent
+  | ExecuteWsEvent
+  | FinishWsEvent
+  | AgentChunkStreamEvent;
 
 export type WsState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -308,10 +359,10 @@ describe('createWsClient', () => {
     expect(states).toEqual(['connecting', 'connected']);
   });
 
-  test('URL 使用 window.location.host 默认分支且含 channel 与 token', () => {
+  test('URL 使用 window.location.host 默认分支且含路径与 token', () => {
     const client = createWsClient();
     client.connect('exec-9', 'jwt-x');
-    expect(MockWebSocket.latest().url).toContain('/ws/execution:exec-9?token=jwt-x');
+    expect(MockWebSocket.latest().url).toContain('/ws/executions/exec-9?token=jwt-x');
   });
 
   test('常规断线 (1006) 触发退避重连 1s->2s->4s', () => {
@@ -374,11 +425,11 @@ describe('createWsClient', () => {
     expect(MockWebSocket.instances.length).toBe(before + 1);
   });
 
-  test('致命码 4001 触发熔断：state=error 且不重连', () => {
+  test('策略违规码 1008 触发熔断：state=error 且不重连', () => {
     const client = createWsClient();
     client.connect('exec-1', 'tok');
     MockWebSocket.latest().onopen?.();
-    MockWebSocket.latest().onclose?.({ code: 4001 });
+    MockWebSocket.latest().onclose?.({ code: 1008 });
     expect(client.getState()).toBe('error');
     vi.advanceTimersByTime(60000);
     expect(MockWebSocket.instances.length).toBe(1); // 绝不重连
@@ -399,7 +450,13 @@ describe('createWsClient', () => {
     const received: unknown[] = [];
     const unsub = client.onEvent((e) => received.push(e));
     client.connect('exec-1', 'tok');
-    const payload = { execution_id: 'exec-1', protocol_stage: 'INIT', event_type: 'agent_spawn', payload: {}, timestamp: 't' };
+    const payload = {
+      protocol_stage: 'INIT',
+      event_type: 'agent_spawn',
+      created_at: 't',
+      agent_id: 'agent-1',
+      workflow_id: 'wf-1',
+    };
     MockWebSocket.latest().onmessage?.({ data: JSON.stringify(payload) });
     expect(received).toHaveLength(1);
     unsub();
@@ -455,7 +512,7 @@ export function createWsClient(): WsClient {
     changeState('connecting');
 
     const baseWsUrl = import.meta.env.VITE_WS_URL || `ws://${window.location.host}`;
-    const wsUrl = `${baseWsUrl}/ws/execution:${executionId}?token=${token}`;
+    const wsUrl = `${baseWsUrl}/ws/executions/${executionId}?token=${token}`;
     socket = new WebSocket(wsUrl);
 
     socket.onopen = () => {
@@ -474,7 +531,7 @@ export function createWsClient(): WsClient {
 
     socket.onclose = (event) => {
       socket = null;
-      if (event.code >= 4000) {
+      if (event.code === 1008 || event.code >= 4000) {
         changeState('error');
         return;
       }
@@ -522,7 +579,7 @@ export function createWsClient(): WsClient {
 }
 ```
 
-> 注意重连回调里 `reconnectDelay = Math.min(30000, reconnectDelay * 2)` 在下一次 connect 前翻倍。测试用例的退避断言（1s→2s→4s）据此校准：首断线用初始 1000ms 排程，重连回调触发时才翻倍到 2000，故第二次断线等 2s。
+> 注意重连回调里 `reconnectDelay = Math.min(30000, reconnectDelay * 2)` 在下一次 connect 前翻倍。测试用例的退避断言（1s→2s→4s）据此校准：首断线用初始 1000ms 排程，重连回调触发时才翻倍到 2000，故第二次断线等 2s。当前后端明确返回的非重试关闭码为 `1008`（token 非法）；前端同时兼容未来可能出现的 `4xxx` 应用级关闭码。
 
 - [ ] **Step 4: 运行测试确认通过**
 

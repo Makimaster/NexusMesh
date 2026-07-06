@@ -2,7 +2,7 @@
 
 > 状态：待实现
 > 日期：2026-07-06
-> 依赖：M2（协议类型）、M4（WebSocket 帧格式 `execution:{id}`）、M8（14 个 REST 端点契约）
+> 依赖：M2（协议类型）、M4（WebSocket 路由 `/ws/executions/{id}` 与事件广播）、M8（14 个 REST 端点契约）
 > 定位：前端通信总线底座 + 应用外壳骨架，Phase 4 前端第一块基石
 
 ---
@@ -42,7 +42,7 @@ M9 是 NexusMesh 前端的 **通信与布局基础设施层**，为 Phase 4 后�
 | 文件 | 操作 | 说明 |
 |------|------|------|
 | `frontend/src/types/protocol.ts` | **新建** | 类型总线：REST Request/Response + WS 协议类型 + WsClient/WsState 接口 |
-| `frontend/src/api/ws.ts` | **新建** | 纯 TS WebSocket 客户端 + 指数退避 + 4000+ 熔断 |
+| `frontend/src/api/ws.ts` | **新建** | 纯 TS WebSocket 客户端 + 指数退避 + 非重试关闭码熔断 |
 | `frontend/src/api/agents.ts` | **新建** | Agent 5 个强类型 REST 函数 |
 | `frontend/src/api/workflows.ts` | **新建** | Workflow 6 个 REST 函数（含 1 个 202 异步触发） |
 | `frontend/src/api/executions.ts` | **新建** | Execution 3 个只读查询函数 |
@@ -78,33 +78,33 @@ export interface AgentRequest {
   llm_provider: string;
   llm_model: string;
   system_prompt?: string;
-  config: Record<string, unknown>;
+  config?: Record<string, unknown>;
 }
 
 export interface AgentUpdateRequest {
-  name?: string;
-  description?: string;
-  agent_type?: string;
-  llm_provider?: string;
-  llm_model?: string;
-  system_prompt?: string;
-  config?: Record<string, unknown>;
+  name?: string | null;
+  description?: string | null;
+  agent_type?: string | null;
+  llm_provider?: string | null;
+  llm_model?: string | null;
+  system_prompt?: string | null;
+  config?: Record<string, unknown> | null;
 }
 
 export interface WorkflowRequest {
   name: string;
   description?: string;
-  topology: Record<string, unknown>;
-}
-
-export interface WorkflowUpdateRequest {
-  name?: string;
-  description?: string;
   topology?: Record<string, unknown>;
 }
 
+export interface WorkflowUpdateRequest {
+  name?: string | null;
+  description?: string | null;
+  topology?: Record<string, unknown> | null;
+}
+
 export interface TriggerRequest {
-  task_input: Record<string, unknown>;
+  task_input?: Record<string, unknown>;
 }
 ```
 
@@ -160,7 +160,7 @@ export interface TimelineEventResponse {
   id: string;
   execution_id: string | null;  // ORM ondelete=SET NULL
   protocol_stage: ProtocolStage;
-  event_type: EventType;
+  event_type: ProtocolEventType;
   payload: Record<string, unknown>;
   created_at: string;
 }
@@ -170,15 +170,66 @@ export interface TimelineEventResponse {
 
 ```typescript
 export type ProtocolStage = 'INIT' | 'RECEIVE' | 'ROUTE' | 'EXECUTE' | 'FINISH';
-export type EventType = 'agent_spawn' | 'agent_call' | 'agent_finish' | 'agent_reflect';
+export type ProtocolEventType = 'agent_spawn' | 'agent_call' | 'agent_finish' | 'agent_reflect';
+export type StreamEventType = 'agent_chunk_stream';
+export type EventType = ProtocolEventType | StreamEventType;
 
-export interface WebSocketEvent {
-  execution_id: string;
-  protocol_stage: ProtocolStage;
-  event_type: EventType;
-  payload: Record<string, unknown>;
-  timestamp: string;
+export interface InitWsEvent {
+  protocol_stage: 'INIT';
+  event_type: ProtocolEventType;
+  created_at: string;
+  agent_id: string;
+  workflow_id: string;
 }
+
+export interface ReceiveWsEvent {
+  protocol_stage: 'RECEIVE';
+  event_type: ProtocolEventType;
+  created_at: string;
+  task_input: Record<string, unknown>;
+}
+
+export interface RouteWsEvent {
+  protocol_stage: 'ROUTE';
+  event_type: ProtocolEventType;
+  created_at: string;
+  next_agent_id: string | null;
+  routing_reason: string | null;
+}
+
+export interface ExecuteWsEvent {
+  protocol_stage: 'EXECUTE';
+  event_type: ProtocolEventType;
+  created_at: string;
+  agent_message: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  model: string;
+  model_cost_usd: number;
+}
+
+export interface FinishWsEvent {
+  protocol_stage: 'FINISH';
+  event_type: ProtocolEventType;
+  created_at: string;
+  success: boolean;
+  output: Record<string, unknown> | null;
+}
+
+export interface AgentChunkStreamEvent {
+  event_type: 'agent_chunk_stream';
+  agent_id: string;
+  text: string;
+  reasoning: boolean;
+}
+
+export type WebSocketEvent =
+  | InitWsEvent
+  | ReceiveWsEvent
+  | RouteWsEvent
+  | ExecuteWsEvent
+  | FinishWsEvent
+  | AgentChunkStreamEvent;
 
 export type WsState = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -211,9 +262,9 @@ export interface WsClient {
 **连接 URL（动态解析，禁止硬编码）**：
 ```typescript
 const baseWsUrl = import.meta.env.VITE_WS_URL || `ws://${window.location.host}`;
-const wsUrl = `${baseWsUrl}/ws/execution:${executionId}?token=${token}`;
+const wsUrl = `${baseWsUrl}/ws/executions/${executionId}?token=${token}`;
 ```
-channel 格式对齐 M4 `execution:{id}`，JWT 经 query param 传递。
+JWT 经 query param 传递；前端订阅的是真实 WebSocket 路由，Redis `execution:{id}` 频道仅为后端内部广播实现细节，不透传给浏览器。
 
 **指数退避重连（评审锁定 Q4=A）**：
 ```
@@ -222,7 +273,7 @@ channel 格式对齐 M4 `execution:{id}`，JWT 经 query param 传递。
 disconnect() 主动断开 → 停止重连
 ```
 
-**4000+ 熔断断路器**：`onclose` 判 `event.code >= 4000`（JWT 过期 / 实例不存在等致命拒绝码）→ 状态跃迁 `error`，彻底掐断 setTimeout 重连，杜绝"前端 DDoS 自家后端"。仅常规断线（如 1006）才允许退避重连。
+**非重试关闭码熔断**：当前后端对非法 token 明确返回 `1008`（Policy Violation）；前端同时兼容未来可能出现的 `4xxx` 应用级关闭码。`onclose` 判 `event.code === 1008 || event.code >= 4000` → 状态跃迁 `error`，彻底掐断 setTimeout 重连。仅常规断线（如 1006）才允许退避重连。
 
 ### 4.2 状态机（4 态单向流转）
 
@@ -230,7 +281,7 @@ disconnect() 主动断开 → 停止重连
 disconnected → connecting → connected
                     ↑            ↓
                     └─ (退避重连) ┘（常规断线）
-     任意态 ──(code≥4000)──> error（不可恢复，对外暴露，不重连）
+     任意态 ──(code=1008 或 code≥4000)──> error（不可恢复，对外暴露，不重连）
 ```
 
 ### 4.3 完整实现
@@ -265,7 +316,7 @@ export function createWsClient(): WsClient {
     changeState('connecting');
 
     const baseWsUrl = import.meta.env.VITE_WS_URL || `ws://${window.location.host}`;
-    const wsUrl = `${baseWsUrl}/ws/execution:${executionId}?token=${token}`;
+    const wsUrl = `${baseWsUrl}/ws/executions/${executionId}?token=${token}`;
     socket = new WebSocket(wsUrl);
 
     socket.onopen = () => {
@@ -284,7 +335,7 @@ export function createWsClient(): WsClient {
 
     socket.onclose = (event) => {
       socket = null;
-      if (event.code >= 4000) {
+      if (event.code === 1008 || event.code >= 4000) {
         changeState('error');
         return;
       }
@@ -387,7 +438,7 @@ export const workflowsApi = {
 };
 ```
 
-> `trigger` → 202 Accepted 由 Axios 默认 2xx 判定正常解析，无需 `validateStatus`。返回 `execution_id` 后前端转去 WS 频道 `execution:{id}` 订阅实时流。
+> `trigger` → 202 Accepted 由 Axios 默认 2xx 判定正常解析，无需 `validateStatus`。返回 `execution_id` 后前端连接 `/ws/executions/{id}?token=...` 订阅实时流。
 
 ### 5.3 `api/executions.ts`（3 只读函数）
 
@@ -683,7 +734,7 @@ DoD 原文：**"WS 连接/重连 + REST 数据获取 hook 有测试或最小可�
 
 ### 9.2 Tier 2 — WS 核心逻辑单元测试（vitest，评审锁定纳入）
 
-`ws.ts` 的指数退避 + 4000+ 熔断是最高风险时序逻辑，用 `vitest` + `vi.useFakeTimers()` 兜底。
+`ws.ts` 的指数退避 + 非重试关闭码熔断是最高风险时序逻辑，用 `vitest` + `vi.useFakeTimers()` 兜底。
 
 **新增依赖与配置**：
 - `package.json` devDependency：`vitest`、`jsdom`；新增脚本 `"test": "vitest"`
@@ -697,7 +748,7 @@ DoD 原文：**"WS 连接/重连 + REST 数据获取 hook 有测试或最小可�
 | onclose(code=1006) | 触发重连，退避严格 1s→2s→4s 翻倍 |
 | 退避上限 | 多次重连后延迟卡死 30s，不超出 |
 | onopen 后再断线 | `reconnectDelay` 已复位为 1000 |
-| onclose(code=4001) | state 跃迁 `error`，绝不触发任何 setTimeout 重连（熔断） |
+| onclose(code=1008) | state 跃迁 `error`，绝不触发任何 setTimeout 重连（熔断） |
 | disconnect() | 清 timer；后续 onclose 不触发重连 |
 | onStateChange / onEvent | 注册触发正确，返回的 unsubscribe 生效 |
 
@@ -738,7 +789,7 @@ const execId = await workflowsApi.trigger(wfId, { task_input: {...} });
 | Request 类型命名对齐后端 Pydantic（无 `Create` 冗余） | ✅ `AgentRequest`/`WorkflowRequest` |
 | `dict` → `Record<string, unknown>`，杜绝 `any` | ✅ |
 | WS URL 动态解析，无硬编码 localhost | ✅ `VITE_WS_URL` fallback |
-| 4000+ 熔断断路器，防前端 DDoS | ✅ §4.1 |
+| 1008 / 4xxx 非重试关闭码熔断，防无效凭证死循环重连 | ✅ §4.1 |
 | `onStateChange` 补齐响应式链路（getState 不驱动 re-render） | ✅ |
 | `onEventRef` 稳定引用，根治断线闪烁 | ✅ §6.1 |
 | 依赖单向向下，布局层对 WS 零感知 | ✅ §1.1 |
@@ -746,4 +797,3 @@ const execId = await workflowsApi.trigger(wfId, { task_input: {...} });
 | 工具链命令对齐真实 package.json（pnpm/Biome/tsc -b） | ✅ §9.1 |
 | 外科手术：http.ts/sessionStore/main.tsx/Login/Dashboard 不动 | ✅ §2 |
 | YAGNI：不接 JWT、无心跳、无缓冲、骨架页仅占位 | ✅ §1.2 |
-
