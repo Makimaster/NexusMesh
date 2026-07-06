@@ -1,6 +1,6 @@
 # M8 REST API 扩展 — 详细设计方案
 
-> 状态：待评审
+> 状态：已实现
 > 日期：2026-07-06
 > 依赖：M7 业务服务层（agent_service / workflow_service / execution_service 已落地）
 > 定位：API 网关层，`api/ → services/` 单向依赖的最外层入口
@@ -110,6 +110,7 @@ class AgentListItem(BaseModel):
 
     id: uuid.UUID
     name: str
+    description: str | None = None
     agent_type: str
     llm_provider: str
     llm_model: str
