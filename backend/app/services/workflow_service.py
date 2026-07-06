@@ -7,9 +7,12 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ValidationError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.models.agent import Agent
+from app.models.execution import WorkflowExecution
+from app.models.workflow import Workflow
 from app.orchestrator.coordinator import Coordinator
+from app.schemas.workflow import WorkflowRequest, WorkflowUpdateRequest
 
 
 class WorkflowService:
@@ -59,3 +62,68 @@ class WorkflowService:
             raise ValidationError(
                 f"拓扑非法：引用的智能体不存在或已被清退: {', '.join(missing)}"
             )
+
+    async def create_workflow(
+        self, schema: WorkflowRequest, created_by: uuid.UUID
+    ) -> Workflow:
+        data = schema.model_dump()
+        await self._validate_topology(data.get("topology", {}))
+        workflow = Workflow(**data, created_by=created_by, is_active=True)
+        self.db.add(workflow)
+        await self.db.flush()
+        await self.db.refresh(workflow)
+        return workflow
+
+    async def get_workflow_detail(self, workflow_id: uuid.UUID) -> Workflow:
+        workflow = await self.db.get(Workflow, workflow_id)
+        if workflow is None or not workflow.is_active:
+            raise NotFoundError(f"工作流不存在或已被删除: {workflow_id}")
+        return workflow
+
+    async def list_workflows(
+        self, limit: int = 20, offset: int = 0
+    ) -> list[Workflow]:
+        stmt = (
+            select(Workflow)
+            .where(Workflow.is_active.is_(True))
+            .order_by(Workflow.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_workflow(
+        self, workflow_id: uuid.UUID, schema: WorkflowUpdateRequest
+    ) -> Workflow:
+        workflow = await self.get_workflow_detail(workflow_id)
+        update_data = schema.model_dump(exclude_unset=True)
+        update_data.pop("id", None)
+        update_data.pop("is_active", None)
+        if "topology" in update_data:
+            await self._validate_topology(update_data["topology"])
+        for key, value in update_data.items():
+            setattr(workflow, key, value)
+        await self.db.flush()
+        await self.db.refresh(workflow)
+        return workflow
+
+    async def delete_workflow(self, workflow_id: uuid.UUID) -> None:
+        workflow = await self.db.get(Workflow, workflow_id)
+        if workflow is None or not workflow.is_active:
+            return
+        workflow.is_active = False
+        await self.db.flush()
+
+    async def trigger_execution(
+        self, workflow_id: uuid.UUID, task_input: dict
+    ) -> uuid.UUID:
+        await self.get_workflow_detail(workflow_id)
+        execution = WorkflowExecution(
+            workflow_id=workflow_id, status="pending", input=task_input
+        )
+        self.db.add(execution)
+        await self.db.commit()
+        await self.db.refresh(execution)
+        await self.coordinator.start_execution(str(execution.id))
+        return execution.id

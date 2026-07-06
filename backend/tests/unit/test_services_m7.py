@@ -1,11 +1,13 @@
 """M7 业务服务层单元测试（纯逻辑，fake session / mock coordinator）。"""
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 
 from app.core.exceptions import NexusMeshException, NotFoundError, ValidationError
 from app.models.agent import Agent
+from app.models.workflow import Workflow
 from app.schemas.agent import AgentRequest, AgentUpdateRequest
 from app.schemas.workflow import TriggerRequest, WorkflowRequest, WorkflowUpdateRequest
 from app.services.agent_service import AgentService
@@ -409,3 +411,65 @@ async def test_validate_topology_happy_path_passes():
     assert "SELECT agents.id" in stmt_text
     assert "agents.id IN" in stmt_text
     assert "agents.is_active IS true" in stmt_text
+
+
+class _TriggerSession:
+    """记录 add / commit / refresh 调用顺序的 fake session。"""
+
+    def __init__(self, workflow: Workflow | None) -> None:
+        self._workflow = workflow
+        self.events: list[str] = []
+        self.added: list = []
+
+    async def get(self, model, pk):
+        return self._workflow
+
+    def add(self, obj) -> None:
+        if getattr(obj, "id", None) is None:
+            obj.id = uuid.uuid4()
+        self.added.append(obj)
+        self.events.append("add")
+
+    async def commit(self) -> None:
+        self.events.append("commit")
+
+    async def refresh(self, obj) -> None:
+        self.events.append("refresh")
+
+
+async def test_trigger_execution_commits_before_start():
+    wid = uuid.uuid4()
+    workflow = Workflow(id=wid, name="wf", topology={}, is_active=True)
+    session = _TriggerSession(workflow)
+    coordinator = AsyncMock()
+    service = WorkflowService(session, coordinator=coordinator)
+
+    exec_id = await service.trigger_execution(wid, task_input={"query": "hi"})
+
+    assert "commit" in session.events
+    coordinator.start_execution.assert_awaited_once_with(str(exec_id))
+    assert session.added[0].status == "pending"
+    assert session.added[0].input == {"query": "hi"}
+
+
+async def test_trigger_execution_missing_workflow_raises_404():
+    session = _TriggerSession(None)
+    coordinator = AsyncMock()
+    service = WorkflowService(session, coordinator=coordinator)
+
+    with pytest.raises(NotFoundError):
+        await service.trigger_execution(uuid.uuid4(), task_input={})
+
+    coordinator.start_execution.assert_not_awaited()
+
+
+async def test_trigger_execution_soft_deleted_workflow_raises_404():
+    wid = uuid.uuid4()
+    workflow = Workflow(id=wid, name="wf", topology={}, is_active=False)
+    session = _TriggerSession(workflow)
+    coordinator = AsyncMock()
+    service = WorkflowService(session, coordinator=coordinator)
+
+    with pytest.raises(NotFoundError):
+        await service.trigger_execution(wid, task_input={})
+    coordinator.start_execution.assert_not_awaited()
