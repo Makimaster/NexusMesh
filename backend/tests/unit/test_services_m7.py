@@ -613,22 +613,25 @@ async def test_trigger_execution_soft_deleted_workflow_raises_404():
 class _ExecSession:
     """fake session：get 返回预置执行实例；execute 返回预置事件列表。"""
 
-    def __init__(self, execution=None, events=None) -> None:
+    def __init__(self, execution=None, events=None, rows=None) -> None:
         self._execution = execution
         self._events = events or []
+        self._rows = rows if rows is not None else self._events
+        self.last_statement = None
 
     async def get(self, model, pk):
         return self._execution
 
     async def execute(self, stmt):
-        events = self._events
+        self.last_statement = stmt
+        rows = self._rows
 
         class _Result:
             def scalars(self):
                 return self
 
             def all(self):
-                return list(events)
+                return list(rows)
 
         return _Result()
 
@@ -645,6 +648,24 @@ async def test_get_execution_detail_returns_row():
     service = ExecutionService(_ExecSession(execution=row))
     result = await service.get_execution_detail(eid)
     assert result.id == eid
+
+
+async def test_list_executions_returns_rows_and_builds_filtered_query():
+    workflow_id = uuid.uuid4()
+    first = WorkflowExecution(id=uuid.uuid4(), workflow_id=workflow_id, status="running", input={})
+    second = WorkflowExecution(id=uuid.uuid4(), workflow_id=workflow_id, status="completed", input={})
+    session = _ExecSession(rows=[first, second])
+    service = ExecutionService(session)
+
+    rows = await service.list_executions(workflow_id=workflow_id, status="completed", limit=5, offset=2)
+
+    assert rows == [first, second]
+    stmt_text = str(session.last_statement)
+    assert "WHERE workflow_executions.workflow_id =" in stmt_text
+    assert "workflow_executions.status =" in stmt_text
+    assert "ORDER BY workflow_executions.created_at DESC" in stmt_text
+    assert "LIMIT :param_1" in stmt_text
+    assert "OFFSET :param_2" in stmt_text
 
 
 async def test_get_timeline_missing_execution_raises_404():
@@ -666,3 +687,7 @@ async def test_get_timeline_returns_events():
     timeline = await service.get_execution_timeline(eid)
     assert len(timeline) == 2
     assert timeline[0].protocol_stage == "INIT"
+    stmt_text = str(service.db.last_statement)
+    assert "execution_events" in stmt_text
+    assert "execution_events.execution_id =" in stmt_text
+    assert "ORDER BY execution_events.created_at ASC" in stmt_text
