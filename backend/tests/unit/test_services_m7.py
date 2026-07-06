@@ -12,8 +12,8 @@ from app.models.execution import WorkflowExecution
 from app.models.workflow import Workflow
 from app.schemas.agent import AgentRequest, AgentUpdateRequest
 from app.schemas.workflow import TriggerRequest, WorkflowRequest, WorkflowUpdateRequest
-from app.services.execution_service import ExecutionService
 from app.services.agent_service import AgentService
+from app.services.execution_service import ExecutionService
 from app.services.workflow_service import WorkflowService
 
 
