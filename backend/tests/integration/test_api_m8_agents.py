@@ -23,6 +23,13 @@ def client() -> TestClient:
     return TestClient(app)
 
 
+@pytest.fixture
+def as_admin() -> SimpleNamespace:
+    user = _user(UserRole.ADMIN)
+    _override_user(user)
+    return user
+
+
 def _user(role: UserRole) -> SimpleNamespace:
     return SimpleNamespace(id=uuid.uuid4(), role=role.value)
 
@@ -103,6 +110,33 @@ def test_developer_creates_agent_with_detail_view(
     assert body["config"] == {"temperature": 0.2}
 
 
+def test_admin_creates_agent_with_detail_view(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, as_admin: SimpleNamespace
+) -> None:
+    created_agent = _agent()
+    captured = {}
+
+    async def fake_create_agent(self, schema, created_by: uuid.UUID) -> SimpleNamespace:
+        captured["schema"] = schema
+        captured["created_by"] = created_by
+        return created_agent
+
+    monkeypatch.setattr(AgentService, "create_agent", fake_create_agent)
+
+    response = client.post("/api/v1/agents", json=_agent_payload())
+
+    assert response.status_code == 201
+    assert captured["created_by"] == as_admin.id
+    assert captured["schema"].name == "support-agent"
+    assert response.json()["config"] == {"temperature": 0.2}
+
+
+def test_list_agents_requires_authentication(client: TestClient) -> None:
+    response = client.get("/api/v1/agents")
+
+    assert response.status_code == 401
+
+
 def test_viewer_lists_agents_without_detail_fields(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -125,6 +159,23 @@ def test_viewer_lists_agents_without_detail_fields(
     assert body[0]["description"] == "Handles customer support"
     assert "system_prompt" not in body[0]
     assert "config" not in body[0]
+
+
+@pytest.mark.parametrize("query", ["limit=0", "limit=101", "offset=-1"])
+def test_list_agents_rejects_invalid_pagination(
+    client: TestClient, query: str
+) -> None:
+    _override_user(_user(UserRole.VIEWER))
+
+    response = client.get(f"/api/v1/agents?{query}")
+
+    assert response.status_code == 422
+
+
+def test_get_agent_detail_requires_authentication(client: TestClient) -> None:
+    response = client.get(f"/api/v1/agents/{uuid.uuid4()}")
+
+    assert response.status_code == 401
 
 
 def test_viewer_gets_agent_detail_with_config(
