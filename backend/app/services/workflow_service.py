@@ -100,6 +100,8 @@ class WorkflowService:
         update_data = schema.model_dump(exclude_unset=True)
         update_data.pop("id", None)
         update_data.pop("is_active", None)
+        if "topology" in update_data and update_data["topology"] is None:
+            raise ValidationError("拓扑非法：topology 不能为空。")
         if "topology" in update_data:
             await self._validate_topology(update_data["topology"])
         for key, value in update_data.items():

@@ -499,6 +499,21 @@ async def test_update_workflow_revalidates_topology_and_pops_dirty_fields(
     assert updated.id == wid
 
 
+async def test_update_workflow_rejects_explicit_null_topology(monkeypatch):
+    wid = uuid.uuid4()
+    workflow = Workflow(id=wid, name="wf", topology={}, is_active=True)
+    service = WorkflowService(_FakeSession({wid: workflow}), coordinator=None)
+    req = WorkflowUpdateRequest(name="renamed")
+
+    def fake_model_dump(self, *args, **kwargs):
+        return {"topology": None}
+
+    monkeypatch.setattr(WorkflowUpdateRequest, "model_dump", fake_model_dump)
+
+    with pytest.raises(ValidationError, match="拓扑非法"):
+        await service.update_workflow(wid, req)
+
+
 async def test_delete_workflow_soft_deletes():
     wid = uuid.uuid4()
     workflow = Workflow(id=wid, name="wf", topology={}, is_active=True)
