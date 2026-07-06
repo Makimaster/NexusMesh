@@ -159,8 +159,8 @@ export interface ExecutionAcceptedResponse {
 export interface TimelineEventResponse {
   id: string;
   execution_id: string | null;  // ORM ondelete=SET NULL
-  protocol_stage: ProtocolStage;
-  event_type: ProtocolEventType;
+  protocol_stage: string;
+  event_type: string;
   payload: Record<string, unknown>;
   created_at: string;
 }
