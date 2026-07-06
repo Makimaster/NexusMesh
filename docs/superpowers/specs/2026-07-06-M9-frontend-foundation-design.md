@@ -384,6 +384,7 @@ export function createWsClient(): WsClient {
 ```
 
 > `disconnect()` 双重保护：`changeState('disconnected')` 先于 `tempSocket.close()`，故 `onclose` 触发时 `currentState === 'disconnected'` 直接 early return，永不误触发重连。
+> Task 3 的真实 `ws.test.ts` 落地后，应删除 Task 2 过渡期的 `frontend/src/smoke.test.ts`，避免测试套件长期保留无业务价值的占位用例。
 
 ---
 
@@ -554,7 +555,9 @@ export function useAgentStream(
   }, [executionId]);
 
   const onEvent = useCallback((event: WebSocketEvent) => {
-    setCurrentStage(event.protocol_stage);
+    if (event.event_type !== 'agent_chunk_stream') {
+      setCurrentStage(event.protocol_stage);
+    }
     setEvents((prev) => [...prev, event]);
   }, []);
 
@@ -563,7 +566,7 @@ export function useAgentStream(
 }
 ```
 
-关键决策：`events` append-only（对齐后端事件流仅追加语义）；`currentStage` 独立字段供进度指示器直取；`executionId` 变更时 reset 防止污染新任务事件流；`useCallback([])` 配合 `onEventRef` 双重稳定。
+关键决策：`events` append-only（对齐后端事件流仅追加语义）；`currentStage` 仅由五阶段协议事件推进，`agent_chunk_stream` token 流不覆盖阶段状态；`executionId` 变更时 reset 防止污染新任务事件流；`useCallback([])` 配合 `onEventRef` 双重稳定。
 
 ---
 

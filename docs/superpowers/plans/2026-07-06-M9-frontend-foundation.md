@@ -305,6 +305,7 @@ git commit -m "chore(M9): 接入 vitest + jsdom 测试环境"
 **Files:**
 - Test: `frontend/src/api/ws.test.ts`
 - Create: `frontend/src/api/ws.ts`
+- Delete: `frontend/src/smoke.test.ts`（由真实 `ws.test.ts` 接棒后移除）
 
 - [ ] **Step 1: 写失败测试 `ws.test.ts`**
 
@@ -586,10 +587,15 @@ export function createWsClient(): WsClient {
 Run: `cd frontend && pnpm run test`
 Expected: PASS，全部用例通过。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 移除过渡 smoke test**
+
+Run: `cd frontend && rm src/smoke.test.ts && pnpm run test`
+Expected: PASS（`ws.test.ts` 已接棒，删除 smoke 后测试仍全部通过）。
+
+- [ ] **Step 6: Commit**
 
 ```bash
-cd frontend && git add src/api/ws.ts src/api/ws.test.ts
+cd frontend && git add src/api/ws.ts src/api/ws.test.ts src/smoke.test.ts
 git commit -m "feat(M9): WebSocket 客户端 ws.ts（退避+熔断）+ 单元测试"
 ```
 
@@ -791,7 +797,9 @@ export function useAgentStream(
   }, [executionId]);
 
   const onEvent = useCallback((event: WebSocketEvent) => {
-    setCurrentStage(event.protocol_stage);
+    if (event.event_type !== 'agent_chunk_stream') {
+      setCurrentStage(event.protocol_stage);
+    }
     setEvents((prev) => [...prev, event]);
   }, []);
 
