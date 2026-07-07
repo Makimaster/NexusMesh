@@ -1,7 +1,11 @@
 import React, { act } from "react";
 import ReactDOM from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+
+vi.mock("./pages/executions/ExecutionDetailPage", () => ({
+  default: () => <h1>Execution Detail Mock</h1>,
+}));
 
 import App from "./App";
 
@@ -47,6 +51,16 @@ describe("App routes", () => {
 
     expect(view.container.querySelector("main")?.textContent).toContain(
       "Workflows",
+    );
+
+    view.unmount();
+  });
+
+  test("执行详情路由不会被兜底重定向覆盖", () => {
+    const view = renderApp("/executions/test-id");
+
+    expect(view.container.querySelector("main")?.textContent).toContain(
+      "Execution Detail Mock",
     );
 
     view.unmount();
