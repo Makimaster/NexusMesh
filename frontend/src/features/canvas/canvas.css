@@ -1,3 +1,111 @@
+/* frontend/src/features/canvas/canvas.css */
+
+/* ── 画布容器 ─────────────────────────── */
 .mesh-canvas-container {
-  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── 执行详情页布局 ───────────────────── */
+.mesh-execution-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.mesh-execution-detail__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.mesh-execution-detail__canvas {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid #e0e2e7;
+  border-radius: 8px;
+}
+.mesh-execution-ended {
+  color: #6b7280;
+}
+
+/* ── WS 状态指示器 ────────────────────── */
+.mesh-ws-indicator {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.mesh-ws--connected {
+  background: #dcfce7;
+  color: #166534;
+}
+.mesh-ws--connecting {
+  background: #fef9c3;
+  color: #854d0e;
+}
+.mesh-ws--disconnected {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.mesh-ws--error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* ── Agent 自定义节点 ─────────────────── */
+.mesh-agent-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 160px;
+  height: 60px;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+}
+.mesh-agent-node__label {
+  font-weight: 600;
+}
+.mesh-agent-node__tokens {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* ── 执行列表页 ───────────────────────── */
+.mesh-execution-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mesh-execution-item {
+  border-bottom: 1px solid #f0f0f0;
+}
+.mesh-execution-item a {
+  display: flex;
+  gap: 16px;
+  padding: 12px 0;
+  text-decoration: none;
+  color: #3c4149;
+}
+.mesh-execution-item__id {
+  font-family: monospace;
+  font-size: 12px;
+}
+.mesh-execution-item__time {
+  font-size: 12px;
+  color: #6b7280;
+  margin-left: auto;
+}
+.mesh-status--running {
+  color: #2563eb;
+}
+.mesh-status--pending {
+  color: #d97706;
+}
+.mesh-status--completed {
+  color: #16a34a;
+}
+.mesh-status--failed {
+  color: #dc2626;
 }
