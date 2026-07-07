@@ -1,6 +1,6 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import ReactDOM from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -27,8 +27,9 @@ vi.mock("../../hooks/useAgentStream", () => ({
 }));
 
 vi.mock("../../stores/sessionStore", () => ({
-  useSessionStore: vi.fn((selector: (state: { accessToken: string | null }) => unknown) =>
-    selector({ accessToken: "token-123" }),
+  useSessionStore: vi.fn(
+    (selector: (state: { accessToken: string | null }) => unknown) =>
+      selector({ accessToken: "token-123" }),
   ),
 }));
 
@@ -95,9 +96,7 @@ describe("ExecutionDetailPage", () => {
     });
 
     let resolveGet:
-      | ((
-          value: Awaited<ReturnType<typeof executionsApi.get>>,
-        ) => void)
+      | ((value: Awaited<ReturnType<typeof executionsApi.get>>) => void)
       | undefined;
 
     vi.spyOn(executionsApi, "get").mockImplementation(
@@ -128,7 +127,9 @@ describe("ExecutionDetailPage", () => {
 
     expect(view.container.textContent).toContain("Execution exec-001");
     expect(view.container.textContent).toContain("此执行已结束（completed）");
-    expect(view.container.querySelector('[data-testid="agent-canvas"]')).toBeNull();
+    expect(
+      view.container.querySelector('[data-testid="agent-canvas"]'),
+    ).toBeNull();
     expect(useAgentStream).toHaveBeenCalledWith({
       executionId: "exec-001",
       token: null,
@@ -156,9 +157,7 @@ describe("ExecutionDetailPage", () => {
     });
 
     let resolveGet:
-      | ((
-          value: Awaited<ReturnType<typeof executionsApi.get>>,
-        ) => void)
+      | ((value: Awaited<ReturnType<typeof executionsApi.get>>) => void)
       | undefined;
 
     vi.spyOn(executionsApi, "get").mockImplementation(

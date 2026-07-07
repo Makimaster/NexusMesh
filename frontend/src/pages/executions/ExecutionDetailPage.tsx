@@ -41,8 +41,8 @@ export default function ExecutionDetailPage() {
       <div className="mesh-execution-detail">
         <h1>Execution {id}</h1>
         <p className="mesh-execution-ended">
-          此执行已结束（{execution.status}）。实时画布仅用于进行中的执行，历史回溯请查看
-          Timeline。
+          此执行已结束（{execution.status}
+          ）。实时画布仅用于进行中的执行，历史回溯请查看 Timeline。
         </p>
       </div>
     );
