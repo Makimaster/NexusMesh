@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { WebSocketEvent } from "../../types/protocol";
-import { reduceEvents } from "./canvasReducer";
+import { applyDagreLayout, reduceEvents } from "./canvasReducer";
 
 describe("reduceEvents", () => {
   test("单 INIT 事件创建 orchestrator 节点", () => {
@@ -302,5 +302,36 @@ describe("reduceEvents", () => {
     ];
     const { nodes } = reduceEvents(events);
     expect(nodes).toHaveLength(1);
+  });
+});
+
+describe("applyDagreLayout", () => {
+  test("dagre 生成自上而下的层次布局", () => {
+    const { nodes, edges } = reduceEvents([
+      {
+        created_at: "t",
+        protocol_stage: "INIT",
+        event_type: "agent_spawn",
+        agent_id: "orch",
+        workflow_id: "w",
+      },
+      {
+        created_at: "t",
+        protocol_stage: "ROUTE",
+        event_type: "agent_call",
+        next_agent_id: "A",
+        routing_reason: null,
+      },
+    ]);
+
+    const laid = applyDagreLayout(nodes, edges);
+    const orch = laid.find((node) => node.id === "orch");
+    const agentA = laid.find((node) => node.id === "A");
+
+    expect(orch).toBeDefined();
+    expect(agentA).toBeDefined();
+    expect(orch?.position).toEqual({ x: 0, y: 0 });
+    expect(agentA?.position.y).toBeGreaterThan(orch?.position.y ?? 0);
+    expect(agentA?.position).not.toEqual(orch?.position);
   });
 });

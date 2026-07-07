@@ -1,7 +1,11 @@
+import dagre from "@dagrejs/dagre";
 import type { Edge, Node } from "@xyflow/react";
 import type { WebSocketEvent } from "../../types/protocol";
 
 export type NodeStatus = "running" | "finished" | "error";
+
+const NODE_W = 160;
+const NODE_H = 60;
 
 export interface AgentNodeData extends Record<string, unknown> {
   label: string;
@@ -26,6 +30,37 @@ function createNode(agentId: string): Node<AgentNodeData> {
       status: "running",
     },
   };
+}
+
+export function applyDagreLayout(
+  nodes: Node<AgentNodeData>[],
+  edges: Edge[],
+): Node<AgentNodeData>[] {
+  const graph = new dagre.graphlib.Graph();
+  graph.setDefaultEdgeLabel(() => ({}));
+  graph.setGraph({ rankdir: "TB", nodesep: 50, ranksep: 60 });
+
+  for (const node of nodes) {
+    graph.setNode(node.id, { width: NODE_W, height: NODE_H });
+  }
+
+  for (const edge of edges) {
+    graph.setEdge(edge.source, edge.target);
+  }
+
+  dagre.layout(graph);
+
+  return nodes.map((node) => {
+    const { x, y } = graph.node(node.id);
+
+    return {
+      ...node,
+      position: {
+        x: x - NODE_W / 2,
+        y: y - NODE_H / 2,
+      },
+    };
+  });
 }
 
 export function reduceEvents(events: WebSocketEvent[]): CanvasGraph {
